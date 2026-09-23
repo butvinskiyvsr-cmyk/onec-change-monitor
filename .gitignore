@@ -3,6 +3,7 @@
 .vs/
 .vscode/
 src/OneCChangeMonitor.Web/appsettings.Local.json
+src/OneCChangeMonitor.Desktop/appsettings.Local.json
 *.user
 *.suo
 TestResults/

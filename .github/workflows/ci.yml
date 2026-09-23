@@ -15,3 +15,11 @@ jobs:
       - run: dotnet restore
       - run: dotnet build --no-restore --configuration Release
       - run: dotnet test --no-build --configuration Release
+      - name: Publish Windows desktop app
+        run: dotnet publish src/OneCChangeMonitor.Desktop/OneCChangeMonitor.Desktop.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false --output artifacts/win-x64
+      - uses: actions/upload-artifact@v7
+        with:
+          name: onec-change-monitor-win-x64
+          path: |
+            artifacts/win-x64/OneCChangeMonitor.exe
+            artifacts/win-x64/appsettings.Local.example.json

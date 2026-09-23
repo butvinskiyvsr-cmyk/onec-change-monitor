@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\OneCChangeMonitor.Domain\OneCChangeMonitor.Domain.csproj" />
+    <ProjectReference Include="..\OneCChangeMonitor.Application\OneCChangeMonitor.Application.csproj" />
+    <ProjectReference Include="..\OneCChangeMonitor.Infrastructure\OneCChangeMonitor.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>OneCChangeMonitor</AssemblyName>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.Local.example.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
