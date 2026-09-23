@@ -13,10 +13,15 @@ public partial class MainWindow : Window
     private readonly UpdateService _updateService = new();
     private ChangeMonitorService? _service;
     private DesktopSettings _settings = new();
+    private IReadOnlyList<RepositoryProject> _projects = [];
     private RepositoryProject? _project;
     private UpdateInfo? _latestUpdate;
     private List<CommitItem> _commits = [];
+    private List<ChangedFileItem> _currentFiles = [];
     private List<QualityFinding> _qualityFindings = [];
+    private FileDiff? _currentDiff;
+    private ChangedFileItem? _currentDiffFile;
+    private bool _forceSplitDiff;
     private bool _changingSelection;
     private CancellationTokenSource? _detailsCancellation;
     private CancellationTokenSource? _diffCancellation;
@@ -58,21 +63,25 @@ public partial class MainWindow : Window
 
     private void InitializeProjects(string? selectedProjectId = null)
     {
-        var projects = _settings.Projects.Select(item => item.ToDomain()).ToArray();
-        if (projects.Length == 0) throw new InvalidOperationException("В настройках нет ни одного Git-проекта.");
+        _projects = _settings.Projects.Select(item => item.ToDomain()).ToArray();
+        if (_projects.Count == 0) throw new InvalidOperationException("В настройках нет ни одного Git-проекта.");
 
+        _service = new ChangeMonitorService(new InMemoryProjectCatalog(_projects), new GitCliRepositoryReader(new OneCPathClassifier()));
         _changingSelection = true;
-        _service = new ChangeMonitorService(new InMemoryProjectCatalog(projects), new GitCliRepositoryReader(new OneCPathClassifier()));
-        ProjectCombo.ItemsSource = projects;
+        ProjectPickerList.ItemsSource = _projects;
+        var selected = _projects.FirstOrDefault(item => item.Id == selectedProjectId) ?? _projects[0];
+        ProjectPickerList.SelectedItem = selected;
         ProjectList.ItemsSource = _settings.Projects;
-        ProjectCombo.SelectedItem = projects.FirstOrDefault(item => item.Id == selectedProjectId) ?? projects[0];
         _changingSelection = false;
-        _ = SelectProjectAsync((RepositoryProject)ProjectCombo.SelectedItem);
+        _ = SelectProjectAsync(selected);
     }
 
-    private async void ProjectCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void ProjectPickerButton_Click(object sender, RoutedEventArgs e) => ProjectPickerPopup.IsOpen = true;
+
+    private async void ProjectPickerList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_changingSelection || ProjectCombo.SelectedItem is not RepositoryProject project) return;
+        if (_changingSelection || ProjectPickerList.SelectedItem is not RepositoryProject project) return;
+        ProjectPickerPopup.IsOpen = false;
         await SelectProjectAsync(project);
     }
 
@@ -80,7 +89,8 @@ public partial class MainWindow : Window
     {
         if (_service is null) return;
         _project = project;
-        TitleProjectText.Text = $"/ {project.Name}";
+        ProjectNameText.Text = project.Name;
+        ProjectMetaText.Text = $"{project.DefaultBranch} · {GetGitSourceName(project)}";
         OverviewProjectName.Text = project.Name;
         OverviewProjectPath.Text = project.LocalPath;
         try
@@ -91,6 +101,7 @@ public partial class MainWindow : Window
             BranchCombo.ItemsSource = branches;
             BranchCombo.SelectedItem = branches.Contains(project.DefaultBranch) ? project.DefaultBranch : branches.FirstOrDefault();
             _changingSelection = false;
+            UpdateRepositoryStatus("история загружена");
             await LoadCommitsAsync();
         }
         catch (Exception exception)
@@ -107,7 +118,25 @@ public partial class MainWindow : Window
     private async void BranchCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_changingSelection || _service is null || _project is null || BranchCombo.SelectedItem is null) return;
+        UpdateRepositoryStatus("история загружена");
         await RunUiOperationAsync(LoadCommitsAsync, "Чтение истории…");
+    }
+
+    private void UpdateRepositoryStatus(string state)
+    {
+        if (_project is null) return;
+        var branch = BranchCombo.SelectedItem as string ?? _project.DefaultBranch;
+        var source = GetGitSourceName(_project);
+        ProjectMetaText.Text = $"{branch} · {source}";
+        SyncLabel.Text = $"{source} · {branch} · {state}";
+    }
+
+    private static string GetGitSourceName(RepositoryProject project)
+    {
+        if (string.IsNullOrWhiteSpace(project.RemoteUrl)) return "локальный Git";
+        if (project.RemoteUrl.Contains("github.com", StringComparison.OrdinalIgnoreCase)) return "GitHub";
+        if (project.RemoteUrl.Contains("gitea", StringComparison.OrdinalIgnoreCase) || project.RemoteUrl.Contains(":3000", StringComparison.OrdinalIgnoreCase)) return "Gitea";
+        return Uri.TryCreate(project.RemoteUrl, UriKind.Absolute, out var uri) ? uri.Host : "Git";
     }
 
     private async Task LoadCommitsAsync()
@@ -117,7 +146,6 @@ public partial class MainWindow : Window
         _commits = commits.Select(item => new CommitItem(item)).ToList();
         ApplyCommitFilter();
         CommitCountBadge.Text = _commits.Count.ToString();
-        HistoryCaption.Text = $"{_commits.Count} комм.";
         OverviewCommitCount.Text = _commits.Count.ToString();
         CommitList.SelectedItem = _commits.FirstOrDefault(item => !item.Subject.StartsWith("Merge ", StringComparison.OrdinalIgnoreCase)) ?? _commits.FirstOrDefault();
         SetStatus($"Загружено коммитов: {_commits.Count}");
@@ -160,26 +188,62 @@ public partial class MainWindow : Window
     {
         CommitTitle.Text = details.Commit.Subject;
         CommitMeta.Text = $"{details.Commit.ShortSha} · {details.Commit.Author} · {details.Commit.AuthoredAt.LocalDateTime:g}";
-        var files = details.Files.Select(file => new ChangedFileItem(file)).ToList();
-        FileList.ItemsSource = files;
-        FileCountText.Text = files.Count.ToString();
+        _currentFiles = details.Files.Select(file => new ChangedFileItem(file)).ToList();
 
-        var objects = details.Files.Where(file => file.OneCObject is not null)
-            .GroupBy(file => $"{file.OneCObject!.ObjectType}.{file.OneCObject.ObjectName}")
-            .Select(group => new ObjectListItem(group.Key, string.Join(" · ", group.Select(file => file.OneCObject!.Component ?? file.Path).Distinct())))
-            .OrderBy(item => item.Title).ToList();
-        ObjectList.ItemsSource = objects;
-        OverviewObjectCount.Text = objects.Count.ToString();
+        var objectCount = details.Files.Where(file => file.OneCObject is not null)
+            .Select(file => $"{file.OneCObject!.ObjectType}.{file.OneCObject.ObjectName}")
+            .Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        OverviewObjectCount.Text = objectCount.ToString();
 
         _qualityFindings = AnalyzeFiles(details.Files);
         RenderQuality();
         ShowWarning(_qualityFindings.Count > 0 ? $"Проверки обнаружили замечаний: {_qualityFindings.Count}" : null);
         ClearDiff();
-        FileList.SelectedItem = files.FirstOrDefault(file => file.Source.OneCObject?.IsCode == true)
-            ?? files.FirstOrDefault(file => !file.Path.EndsWith(".bin", StringComparison.OrdinalIgnoreCase))
-            ?? files.FirstOrDefault();
-        SetStatus($"Файлов в коммите: {files.Count}");
+        CodeFilterButton.IsChecked = true;
+        UpdateFileFilterCaptions();
+        ApplyFileFilter(selectFirst: true);
+        SetStatus($"Файлов в коммите: {_currentFiles.Count}");
     }
+
+    private void UpdateFileFilterCaptions()
+    {
+        var code = _currentFiles.Count(file => file.IsCode);
+        var xml = _currentFiles.Count(file => file.IsXml && !file.IsCode);
+        CodeFilterButton.Content = $"Код · {code}";
+        XmlFilterButton.Content = $"XML · {xml}";
+        AllFilterButton.Content = $"Все · {_currentFiles.Count}";
+    }
+
+    private void FileFilter_Checked(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded || _currentFiles.Count == 0) return;
+        ApplyFileFilter(selectFirst: true);
+    }
+
+    private void ApplyFileFilter(bool selectFirst)
+    {
+        var filter = (CodeFilterButton.IsChecked == true ? "Code" : XmlFilterButton.IsChecked == true ? "Xml" : "All");
+        var filtered = filter switch
+        {
+            "Code" => _currentFiles.Where(file => file.IsCode).ToList(),
+            "Xml" => _currentFiles.Where(file => file.IsXml && !file.IsCode).ToList(),
+            _ => _currentFiles
+        };
+
+        FileList.ItemsSource = filtered;
+        FileCountText.Text = $"{filtered.Count} из {_currentFiles.Count}";
+        FileEmptyPanel.Visibility = filtered.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        FileList.Visibility = filtered.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        ChangeViewSubtitle.Text = filter switch
+        {
+            "Code" => "Показаны только изменения кода · XML скрыты",
+            "Xml" => "Показаны XML-файлы метаданных",
+            _ => "Показаны все файлы коммита"
+        };
+        if (selectFirst) FileList.SelectedItem = filtered.FirstOrDefault();
+    }
+
+    private void ShowAllFiles_Click(object sender, RoutedEventArgs e) => AllFilterButton.IsChecked = true;
 
     private static List<QualityFinding> AnalyzeFiles(IEnumerable<ChangedFile> files)
     {
@@ -213,7 +277,10 @@ public partial class MainWindow : Window
         {
             SetStatus("Загрузка изменений файла…");
             var diff = await _service.GetDiffAsync(_project.Id, commit.Sha, file.Path, _diffCancellation.Token);
-            RenderDiff(diff, file);
+            _currentDiff = diff;
+            _currentDiffFile = file;
+            _forceSplitDiff = false;
+            RenderDiff();
         }
         catch (OperationCanceledException)
         {
@@ -224,20 +291,46 @@ public partial class MainWindow : Window
         }
     }
 
-    private void RenderDiff(FileDiff diff, ChangedFileItem file)
+    private void RenderDiff()
     {
+        if (_currentDiff is null || _currentDiffFile is null) return;
+        var diff = _currentDiff;
+        var file = _currentDiffFile;
         DiffPath.Text = diff.Path;
         DiffObjectTitle.Text = file.Title;
         EmptyDiffPanel.Visibility = Visibility.Collapsed;
+        var wrap = WrapDiffBox.IsChecked == true;
+
         if (diff.IsBinary)
         {
-            DiffList.ItemsSource = new[] { new DiffDisplayRow(new SideBySideDiffRow(null, "Бинарный файл нельзя сравнить построчно.", DiffLineKind.Header, null, string.Empty, DiffLineKind.Header)) };
-            SetStatus("Выбран бинарный файл");
+            ShowSingleDiff([new SingleDiffDisplayRow(null, "Бинарный файл нельзя сравнить построчно.", DiffLineKind.Header, wrap)], "БИНАРНЫЙ ФАЙЛ", string.Empty);
             return;
         }
 
         var rows = UnifiedDiffParser.Parse(diff.Content);
-        DiffList.ItemsSource = rows.Select(row => new DiffDisplayRow(row)).ToList();
+        var hasOldContent = rows.Any(row => row.OldNumber.HasValue);
+        var hasNewContent = rows.Any(row => row.NewNumber.HasValue);
+        var useSingle = !_forceSplitDiff && hasOldContent != hasNewContent;
+        if (useSingle)
+        {
+            var showNew = hasNewContent;
+            var singleRows = rows.Select(row => new SingleDiffDisplayRow(
+                showNew ? row.NewNumber : row.OldNumber,
+                showNew ? row.NewText : row.OldText,
+                showNew ? row.NewKind : row.OldKind,
+                wrap)).ToList();
+            var changedLines = showNew ? rows.Count(row => row.NewKind == DiffLineKind.Added) : rows.Count(row => row.OldKind == DiffLineKind.Removed);
+            ShowSingleDiff(singleRows, showNew ? "НОВЫЙ ФАЙЛ · ПОСЛЕ ИЗМЕНЕНИЯ" : "УДАЛЁННЫЙ ФАЙЛ · ДО ИЗМЕНЕНИЯ", showNew ? $"+{changedLines}" : $"−{changedLines}");
+        }
+        else
+        {
+            SingleDiffPanel.Visibility = Visibility.Collapsed;
+            SplitDiffPanel.Visibility = Visibility.Visible;
+            DiffList.ItemsSource = rows.Select(row => new DiffDisplayRow(row, wrap)).ToList();
+        }
+
+        AutoDiffModeButton.Background = _forceSplitDiff ? Brushes.White : (Brush)FindResource("AccentSoftBrush");
+        SplitDiffModeButton.Background = _forceSplitDiff ? (Brush)FindResource("AccentSoftBrush") : Brushes.White;
         if (rows.Any(row => row.OldKind == DiffLineKind.Conflict || row.NewKind == DiffLineKind.Conflict) && _qualityFindings.All(item => item.Title != "Незавершённый Git-конфликт"))
         {
             _qualityFindings.Add(new QualityFinding("Незавершённый Git-конфликт", diff.Path, "Высокий риск"));
@@ -247,16 +340,29 @@ public partial class MainWindow : Window
         SetStatus($"Diff загружен: {rows.Count} строк");
     }
 
+    private void ShowSingleDiff(IReadOnlyList<SingleDiffDisplayRow> rows, string header, string stats)
+    {
+        SplitDiffPanel.Visibility = Visibility.Collapsed;
+        SingleDiffPanel.Visibility = Visibility.Visible;
+        SingleDiffHeader.Text = header;
+        SingleDiffStats.Text = stats;
+        SingleDiffList.ItemsSource = rows;
+    }
+
+    private void WrapDiffBox_Click(object sender, RoutedEventArgs e) => RenderDiff();
+    private void AutoDiffModeButton_Click(object sender, RoutedEventArgs e) { _forceSplitDiff = false; RenderDiff(); }
+    private void SplitDiffModeButton_Click(object sender, RoutedEventArgs e) { _forceSplitDiff = true; RenderDiff(); }
+
     private async void SyncButton_Click(object sender, RoutedEventArgs e)
     {
         if (_service is null || _project is null) return;
         await RunUiOperationAsync(async () =>
         {
-            SyncLabel.Text = "Синхронизация…";
+            UpdateRepositoryStatus("синхронизация…");
             SyncDot.Fill = (Brush)FindResource("WarningBrush");
             await _service.FetchAsync(_project.Id, CancellationToken.None);
             await LoadCommitsAsync();
-            SyncLabel.Text = $"Синхронизировано {DateTime.Now:HH:mm}";
+            UpdateRepositoryStatus($"синхронизировано {DateTime.Now:HH:mm}");
             SyncDot.Fill = (Brush)FindResource("SuccessBrush");
         }, "Получение изменений из Git…");
     }
@@ -270,7 +376,6 @@ public partial class MainWindow : Window
     {
         ChangesPage.Visibility = page == "Changes" ? Visibility.Visible : Visibility.Collapsed;
         OverviewPage.Visibility = page == "Overview" ? Visibility.Visible : Visibility.Collapsed;
-        ObjectsPage.Visibility = page == "Objects" ? Visibility.Visible : Visibility.Collapsed;
         ReleasesPage.Visibility = page == "Releases" ? Visibility.Visible : Visibility.Collapsed;
         QualityPage.Visibility = page == "Quality" ? Visibility.Visible : Visibility.Collapsed;
         ProjectsPage.Visibility = page == "Projects" ? Visibility.Visible : Visibility.Collapsed;
@@ -290,10 +395,9 @@ public partial class MainWindow : Window
         if (setup.ShowDialog() != true) return;
         if (_settings.Projects.Any(project => project.Id.Equals(setup.Project.Id, StringComparison.OrdinalIgnoreCase)))
         {
-            MessageBox.Show(this, "Проект с таким названием уже подключён.", "OneC Change Monitor", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, "Проект с таким названием уже подключён.", "ConfigScope", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-
         _settings.Projects.Add(setup.Project);
         await _settings.SaveAsync();
         InitializeProjects(setup.Project.Id);
@@ -317,14 +421,14 @@ public partial class MainWindow : Window
             {
                 LatestVersionText.Text = $"ДОСТУПНА {_latestUpdate.Tag}";
                 UpdateTitleText.Text = _latestUpdate.Title;
-                UpdateDescriptionText.Text = "Новая версия готова к загрузке. Откройте страницу релиза, чтобы ознакомиться с пакетом и контрольными суммами.";
+                UpdateDescriptionText.Text = "Новая версия ConfigScope готова к загрузке.";
                 UpdateAvailableButton.Content = $"Доступна {_latestUpdate.Tag}";
                 UpdateAvailableButton.Visibility = Visibility.Visible;
             }
             else
             {
                 LatestVersionText.Text = "УСТАНОВЛЕНА ПОСЛЕДНЯЯ ВЕРСИЯ";
-                UpdateTitleText.Text = "Приложение актуально";
+                UpdateTitleText.Text = "ConfigScope актуален";
                 UpdateDescriptionText.Text = $"Текущая версия {UpdateService.CurrentVersion} не требует обновления.";
                 UpdateAvailableButton.Visibility = Visibility.Collapsed;
             }
@@ -347,17 +451,8 @@ public partial class MainWindow : Window
         return normalized.Length <= 900 ? normalized : normalized[..900] + "…";
     }
 
-    private void UpdateAvailableButton_Click(object sender, RoutedEventArgs e)
-    {
-        UpdatesNav.IsChecked = true;
-        ShowPage("Updates");
-    }
-
-    private void OpenReleaseButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (_latestUpdate is null) return;
-        Process.Start(new ProcessStartInfo(_latestUpdate.ReleaseUri.AbsoluteUri) { UseShellExecute = true });
-    }
+    private void UpdateAvailableButton_Click(object sender, RoutedEventArgs e) { UpdatesNav.IsChecked = true; ShowPage("Updates"); }
+    private void OpenReleaseButton_Click(object sender, RoutedEventArgs e) { if (_latestUpdate is not null) Process.Start(new ProcessStartInfo(_latestUpdate.ReleaseUri.AbsoluteUri) { UseShellExecute = true }); }
 
     private async void UpdatePreference_Click(object sender, RoutedEventArgs e)
     {
@@ -368,26 +463,21 @@ public partial class MainWindow : Window
 
     private async Task RunUiOperationAsync(Func<Task> operation, string status)
     {
-        try
-        {
-            SetBusy(true, status);
-            await operation();
-        }
-        catch (Exception exception)
-        {
-            ShowError(exception);
-        }
-        finally
-        {
-            SetBusy(false);
-        }
+        try { SetBusy(true, status); await operation(); }
+        catch (Exception exception) { ShowError(exception); }
+        finally { SetBusy(false); }
     }
 
     private void ClearDiff()
     {
+        _currentDiff = null;
+        _currentDiffFile = null;
         DiffPath.Text = "Выберите файл слева";
         DiffObjectTitle.Text = "Сравнение изменений";
         DiffList.ItemsSource = null;
+        SingleDiffList.ItemsSource = null;
+        SingleDiffPanel.Visibility = Visibility.Collapsed;
+        SplitDiffPanel.Visibility = Visibility.Collapsed;
         EmptyDiffPanel.Visibility = Visibility.Visible;
     }
 
@@ -400,7 +490,7 @@ public partial class MainWindow : Window
     private void SetBusy(bool busy, string? status = null)
     {
         SyncButton.IsEnabled = !busy;
-        ProjectCombo.IsEnabled = !busy;
+        ProjectPickerButton.IsEnabled = !busy;
         BranchCombo.IsEnabled = !busy;
         BusyProgress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         System.Windows.Input.Mouse.OverrideCursor = busy ? System.Windows.Input.Cursors.Wait : null;
@@ -412,12 +502,8 @@ public partial class MainWindow : Window
     private void ShowError(Exception exception)
     {
         SetStatus($"Ошибка: {exception.Message}");
-        MessageBox.Show(this, exception.Message, "OneC Change Monitor", MessageBoxButton.OK, MessageBoxImage.Warning);
+        MessageBox.Show(this, exception.Message, "ConfigScope", MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 
-    private void ShowFatalError(Exception exception)
-    {
-        ShowError(exception);
-        Close();
-    }
+    private void ShowFatalError(Exception exception) { ShowError(exception); Close(); }
 }

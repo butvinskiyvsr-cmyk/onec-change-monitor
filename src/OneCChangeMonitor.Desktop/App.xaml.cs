@@ -17,7 +17,7 @@ public partial class App : System.Windows.Application
         _ownsMutex = createdNew;
         if (!createdNew)
         {
-            MessageBox.Show("OneC Change Monitor уже запущен.", "OneC Change Monitor", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("ConfigScope уже запущен.", "ConfigScope", MessageBoxButton.OK, MessageBoxImage.Information);
             Shutdown();
             return;
         }
@@ -46,7 +46,7 @@ public partial class App : System.Windows.Application
         WriteCrashLog(e.Exception, "Dispatcher");
         MessageBox.Show(
             $"Приложение завершилось с ошибкой. Диагностика сохранена в:\n{LogDirectory}",
-            "OneC Change Monitor",
+            "ConfigScope",
             MessageBoxButton.OK,
             MessageBoxImage.Error);
         e.Handled = true;

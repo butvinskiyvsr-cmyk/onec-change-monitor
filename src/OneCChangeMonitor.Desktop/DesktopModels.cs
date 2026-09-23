@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Windows;
 using System.Windows.Media;
 using OneCChangeMonitor.Application;
 using OneCChangeMonitor.Domain;
@@ -90,6 +91,8 @@ public sealed record ChangedFileItem(ChangedFile Source)
         : $"{Source.OneCObject.ObjectType}.{Source.OneCObject.ObjectName}";
     public string Subtitle => Source.OneCObject?.Component ?? Source.Path;
     public string KindGlyph => Source.OneCObject?.IsCode == true ? "</>" : "XML";
+    public bool IsCode => Source.OneCObject?.IsCode == true || Path.EndsWith(".bsl", StringComparison.OrdinalIgnoreCase);
+    public bool IsXml => Path.EndsWith(".xml", StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed record ObjectListItem(string Title, string Description);
@@ -109,7 +112,7 @@ public sealed class DiffDisplayRow
     private static readonly Brush RemovedForegroundBrush = Freeze(Color.FromRgb(165, 50, 58));
     private static readonly Brush ConflictForegroundBrush = Freeze(Color.FromRgb(133, 81, 0));
 
-    public DiffDisplayRow(SideBySideDiffRow source)
+    public DiffDisplayRow(SideBySideDiffRow source, bool wrapText = true)
     {
         OldNumber = source.OldNumber?.ToString() ?? string.Empty;
         NewNumber = source.NewNumber?.ToString() ?? string.Empty;
@@ -117,6 +120,7 @@ public sealed class DiffDisplayRow
         NewText = source.NewText;
         (OldBackground, OldForeground) = GetColors(source.OldKind);
         (NewBackground, NewForeground) = GetColors(source.NewKind);
+        TextWrapping = wrapText ? TextWrapping.Wrap : TextWrapping.NoWrap;
     }
 
     public string OldNumber { get; }
@@ -127,6 +131,7 @@ public sealed class DiffDisplayRow
     public Brush NewBackground { get; }
     public Brush OldForeground { get; }
     public Brush NewForeground { get; }
+    public TextWrapping TextWrapping { get; }
 
     private static (Brush Background, Brush Foreground) GetColors(DiffLineKind kind) => kind switch
     {
@@ -134,6 +139,53 @@ public sealed class DiffDisplayRow
         DiffLineKind.Removed => (RemovedBackgroundBrush, RemovedForegroundBrush),
         DiffLineKind.Header => (HeaderBackgroundBrush, MutedForeground),
         DiffLineKind.Conflict => (ConflictBackgroundBrush, ConflictForegroundBrush),
+        _ => (NormalBackground, NormalForeground)
+    };
+
+    private static Brush Freeze(Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        brush.Freeze();
+        return brush;
+    }
+}
+
+public sealed class SingleDiffDisplayRow
+{
+    public SingleDiffDisplayRow(int? number, string text, DiffLineKind kind, bool wrapText)
+    {
+        Number = number?.ToString() ?? string.Empty;
+        Text = text;
+        TextWrapping = wrapText ? TextWrapping.Wrap : TextWrapping.NoWrap;
+        (Background, Foreground) = DiffDisplayRowColors.Get(kind);
+    }
+
+    public string Number { get; }
+    public string Text { get; }
+    public Brush Background { get; }
+    public Brush Foreground { get; }
+    public TextWrapping TextWrapping { get; }
+}
+
+internal static class DiffDisplayRowColors
+{
+    private static readonly Brush NormalBackground = Freeze(Color.FromRgb(251, 252, 254));
+    private static readonly Brush AddedBackground = Freeze(Color.FromRgb(226, 246, 235));
+    private static readonly Brush RemovedBackground = Freeze(Color.FromRgb(253, 231, 233));
+    private static readonly Brush HeaderBackground = Freeze(Color.FromRgb(232, 241, 255));
+    private static readonly Brush ConflictBackground = Freeze(Color.FromRgb(255, 240, 205));
+    private static readonly Brush NormalForeground = Freeze(Color.FromRgb(35, 44, 58));
+    private static readonly Brush MutedForeground = Freeze(Color.FromRgb(82, 103, 128));
+    private static readonly Brush AddedForeground = Freeze(Color.FromRgb(20, 108, 67));
+    private static readonly Brush RemovedForeground = Freeze(Color.FromRgb(165, 50, 58));
+    private static readonly Brush ConflictForeground = Freeze(Color.FromRgb(133, 81, 0));
+
+    public static (Brush Background, Brush Foreground) Get(DiffLineKind kind) => kind switch
+    {
+        DiffLineKind.Added => (AddedBackground, AddedForeground),
+        DiffLineKind.Removed => (RemovedBackground, RemovedForeground),
+        DiffLineKind.Header => (HeaderBackground, MutedForeground),
+        DiffLineKind.Conflict => (ConflictBackground, ConflictForeground),
         _ => (NormalBackground, NormalForeground)
     };
 

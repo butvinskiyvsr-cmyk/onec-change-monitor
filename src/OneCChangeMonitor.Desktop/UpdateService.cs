@@ -8,14 +8,14 @@ public sealed record UpdateInfo(Version Version, string Tag, string Title, strin
 
 public sealed class UpdateService
 {
-    public static readonly Version CurrentVersion = new(0, 2, 1);
+    public static readonly Version CurrentVersion = new(0, 3, 0);
     private static readonly Uri LatestReleaseApi = new("https://api.github.com/repos/butvinskiyvsr-cmyk/onec-change-monitor/releases/latest");
     private readonly HttpClient _client;
 
     public UpdateService()
     {
         _client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
-        _client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("OneCChangeMonitor", CurrentVersion.ToString()));
+        _client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ConfigScope", CurrentVersion.ToString()));
         _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
     }
 
