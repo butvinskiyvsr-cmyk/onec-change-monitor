@@ -1,5 +1,7 @@
 using System.IO;
 using System.Text.Json;
+using System.Windows.Media;
+using OneCChangeMonitor.Application;
 using OneCChangeMonitor.Domain;
 
 namespace OneCChangeMonitor.Desktop;
@@ -7,6 +9,7 @@ namespace OneCChangeMonitor.Desktop;
 public sealed class DesktopSettings
 {
     public List<ProjectSettings> Projects { get; init; } = [];
+    public bool CheckForUpdatesOnStartup { get; set; } = true;
 
     public static string UserSettingsPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -62,7 +65,20 @@ public sealed record CommitItem(CommitSummary Source)
     public string Sha => Source.Sha;
     public string ShortSha => Source.ShortSha;
     public string Subject => Source.Subject;
+    public string Author => Source.Author;
     public string Meta => $"{Source.Author} · {Source.AuthoredAt.LocalDateTime:g}";
+    public string RelativeTime => FormatRelativeTime(Source.AuthoredAt);
+
+    private static string FormatRelativeTime(DateTimeOffset value)
+    {
+        var local = value.LocalDateTime;
+        var elapsed = DateTime.Now - local;
+        if (elapsed.TotalMinutes < 2) return "сейчас";
+        if (elapsed.TotalHours < 1) return $"{Math.Max(2, (int)elapsed.TotalMinutes)} мин";
+        if (local.Date == DateTime.Today) return local.ToString("HH:mm");
+        if (local.Date == DateTime.Today.AddDays(-1)) return $"вчера {local:HH:mm}";
+        return local.ToString("dd.MM.yy");
+    }
 }
 
 public sealed record ChangedFileItem(ChangedFile Source)
@@ -73,4 +89,58 @@ public sealed record ChangedFileItem(ChangedFile Source)
         ? Source.Path
         : $"{Source.OneCObject.ObjectType}.{Source.OneCObject.ObjectName}";
     public string Subtitle => Source.OneCObject?.Component ?? Source.Path;
+    public string KindGlyph => Source.OneCObject?.IsCode == true ? "</>" : "XML";
+}
+
+public sealed record ObjectListItem(string Title, string Description);
+
+public sealed record QualityFinding(string Title, string Description, string Severity);
+
+public sealed class DiffDisplayRow
+{
+    private static readonly Brush NormalBackground = Freeze(Color.FromRgb(251, 252, 254));
+    private static readonly Brush AddedBackgroundBrush = Freeze(Color.FromRgb(226, 246, 235));
+    private static readonly Brush RemovedBackgroundBrush = Freeze(Color.FromRgb(253, 231, 233));
+    private static readonly Brush HeaderBackgroundBrush = Freeze(Color.FromRgb(232, 241, 255));
+    private static readonly Brush ConflictBackgroundBrush = Freeze(Color.FromRgb(255, 240, 205));
+    private static readonly Brush NormalForeground = Freeze(Color.FromRgb(35, 44, 58));
+    private static readonly Brush MutedForeground = Freeze(Color.FromRgb(82, 103, 128));
+    private static readonly Brush AddedForegroundBrush = Freeze(Color.FromRgb(20, 108, 67));
+    private static readonly Brush RemovedForegroundBrush = Freeze(Color.FromRgb(165, 50, 58));
+    private static readonly Brush ConflictForegroundBrush = Freeze(Color.FromRgb(133, 81, 0));
+
+    public DiffDisplayRow(SideBySideDiffRow source)
+    {
+        OldNumber = source.OldNumber?.ToString() ?? string.Empty;
+        NewNumber = source.NewNumber?.ToString() ?? string.Empty;
+        OldText = source.OldText;
+        NewText = source.NewText;
+        (OldBackground, OldForeground) = GetColors(source.OldKind);
+        (NewBackground, NewForeground) = GetColors(source.NewKind);
+    }
+
+    public string OldNumber { get; }
+    public string NewNumber { get; }
+    public string OldText { get; }
+    public string NewText { get; }
+    public Brush OldBackground { get; }
+    public Brush NewBackground { get; }
+    public Brush OldForeground { get; }
+    public Brush NewForeground { get; }
+
+    private static (Brush Background, Brush Foreground) GetColors(DiffLineKind kind) => kind switch
+    {
+        DiffLineKind.Added => (AddedBackgroundBrush, AddedForegroundBrush),
+        DiffLineKind.Removed => (RemovedBackgroundBrush, RemovedForegroundBrush),
+        DiffLineKind.Header => (HeaderBackgroundBrush, MutedForeground),
+        DiffLineKind.Conflict => (ConflictBackgroundBrush, ConflictForegroundBrush),
+        _ => (NormalBackground, NormalForeground)
+    };
+
+    private static Brush Freeze(Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        brush.Freeze();
+        return brush;
+    }
 }
