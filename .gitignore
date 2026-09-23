@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+.vs/
+.vscode/
+src/OneCChangeMonitor.Web/appsettings.Local.json
+*.user
+*.suo
+TestResults/
+artifacts/

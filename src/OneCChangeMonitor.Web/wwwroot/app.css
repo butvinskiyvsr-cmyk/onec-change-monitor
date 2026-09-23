@@ -1,0 +1,60 @@
+:root { color-scheme: light; font-family: Inter, "Segoe UI", sans-serif; color: #18212b; background: #eef2f6; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button, select, input { font: inherit; }
+.app-shell { min-height: 100vh; display: grid; grid-template-columns: 224px minmax(0, 1fr); }
+.sidebar { display: flex; flex-direction: column; gap: 22px; padding: 22px 14px; color: #dbe6ef; background: #172433; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 8px; font-weight: 600; }
+.logo { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; color: #fff; background: #2474d2; }
+nav { display: grid; gap: 5px; }
+.nav-item { display: flex; justify-content: space-between; width: 100%; min-height: 40px; padding: 9px 11px; border: 0; border-radius: 8px; text-align: left; color: inherit; background: transparent; }
+.nav-item.active { background: rgba(255,255,255,.13); }
+.nav-item:disabled { opacity: .55; }
+.nav-item small { opacity: .75; }
+.version { margin-top: auto; padding: 10px; font-size: 12px; line-height: 1.6; opacity: .72; }
+main { min-width: 0; background: #fff; }
+.topbar { display: flex; align-items: center; gap: 10px; min-height: 66px; padding: 12px 22px; border-bottom: 1px solid #dbe2ea; }
+select, input { min-height: 38px; padding: 8px 10px; border: 1px solid #ccd5df; border-radius: 8px; color: #18212b; background: #fff; }
+#projectSelect { min-width: 220px; font-weight: 600; }
+.sync-status { margin-left: auto; color: #19744a; font-size: 13px; }
+button.secondary { min-height: 38px; padding: 8px 12px; border: 1px solid #ccd5df; border-radius: 8px; color: #18212b; background: #fff; cursor: pointer; }
+button.secondary:hover { background: #f5f7fa; }
+.content { padding: 24px; }
+.heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 18px; }
+h1 { margin: 0; font-size: 25px; font-weight: 600; }
+.heading p { margin: 6px 0 0; color: #657284; }
+#searchInput { width: min(300px, 40vw); }
+.workspace { display: grid; grid-template-columns: minmax(320px, .8fr) minmax(440px, 1.2fr); gap: 16px; align-items: start; }
+.panel { overflow: hidden; border: 1px solid #dbe2ea; border-radius: 12px; background: #fff; }
+.panel-title { padding: 14px 16px; border-bottom: 1px solid #dbe2ea; font-weight: 600; }
+.commit { display: block; width: 100%; padding: 14px 16px; border: 0; border-bottom: 1px solid #e4e9ef; text-align: left; color: #18212b; background: #fff; cursor: pointer; }
+.commit:last-child { border-bottom: 0; }
+.commit:hover { background: #f5f7fa; }
+.commit.selected { background: #eaf3ff; box-shadow: inset 3px 0 #2474d2; }
+.commit-header { display: flex; justify-content: space-between; gap: 12px; }
+.commit-title { font-weight: 600; }
+.hash { color: #2474d2; font: 12px Consolas, monospace; }
+.meta { margin-top: 7px; color: #657284; font-size: 12px; }
+.detail-placeholder, .empty { padding: 38px; text-align: center; color: #657284; }
+.detail { padding: 18px; }
+.detail h2 { margin: 0; font-size: 20px; }
+.detail-top { display: flex; justify-content: space-between; gap: 16px; }
+.warning { margin-top: 14px; padding: 11px 12px; border-radius: 8px; color: #8a5200; background: #fff3d6; }
+.section-title { margin: 20px 0 9px; color: #657284; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+.file { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 9px; width: 100%; padding: 10px 0; border: 0; border-top: 1px solid #e4e9ef; text-align: left; color: #18212b; background: transparent; cursor: pointer; }
+.file:first-of-type { border-top: 0; }
+.file:hover .file-name { color: #2474d2; }
+.status { align-self: start; padding: 3px 7px; border-radius: 999px; color: #475569; background: #eef2f6; font-size: 11px; text-align: center; }
+.file-name { display: block; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.file-object { display: block; margin-top: 3px; color: #657284; font-size: 12px; }
+.diff-head { margin-top: 18px; padding: 10px 12px; overflow-wrap: anywhere; color: #536173; background: #f1f4f7; font: 12px Consolas, monospace; }
+.diff { margin: 0; overflow-x: auto; color: #e9eef5; background: #151b23; font: 12px/1.55 Consolas, monospace; }
+.diff-line { display: block; min-height: 19px; padding: 0 12px; white-space: pre; }
+.diff-add { color: #b9f6d2; background: rgba(48,164,104,.2); }
+.diff-del { color: #ffc8c8; background: rgba(214,77,77,.2); }
+.diff-info { color: #9db8d5; background: rgba(60,110,160,.15); }
+.hidden { display: none !important; }
+.error { color: #a52323; }
+@media (max-width: 900px) { .app-shell { grid-template-columns: 76px minmax(0,1fr); } .brand span:last-child, .nav-item { font-size: 0; } .nav-item small, .version { display: none; } .brand { padding: 0; justify-content: center; } .workspace { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .app-shell { grid-template-columns: 1fr; } .sidebar { flex-direction: row; padding: 10px; } nav { display: none; } .topbar { flex-wrap: wrap; padding: 12px; } #projectSelect { min-width: 0; flex: 1 1 100%; } .sync-status { margin-left: 0; } .content { padding: 14px; } .heading { display: block; } #searchInput { width: 100%; margin-top: 12px; } }
+@media (prefers-color-scheme: dark) { :root { color-scheme: dark; color: #eef3f8; background: #0d1219; } main, .panel, .commit, select, input, button.secondary { color: #eef3f8; background: #151b24; } .topbar, .panel, select, input, button.secondary { border-color: #303a48; } .commit { border-bottom-color: #303a48; } .commit:hover, button.secondary:hover { background: #1c2430; } .commit.selected { background: #172a43; } .heading p, .meta, .file-object, .section-title { color: #9eabbc; } .file { color: #eef3f8; border-top-color: #303a48; } .status { color: #b8c4d3; background: #273140; } .warning { color: #f4bd62; background: #332613; } .diff-head { color: #aab8c8; background: #1c2430; } }

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\OneCChangeMonitor.Domain\OneCChangeMonitor.Domain.csproj" />
+    <ProjectReference Include="..\OneCChangeMonitor.Application\OneCChangeMonitor.Application.csproj" />
+    <ProjectReference Include="..\OneCChangeMonitor.Infrastructure\OneCChangeMonitor.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>

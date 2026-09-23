@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Контур изменений 1С</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="logo">1С</span><span>Контур изменений</span></div>
+      <nav>
+        <button class="nav-item active">Лента изменений</button>
+        <button class="nav-item" disabled>Объекты 1С <small>скоро</small></button>
+        <button class="nav-item" disabled>Сравнение <small>скоро</small></button>
+        <button class="nav-item" disabled>Релизы <small>скоро</small></button>
+        <button class="nav-item" disabled>Качество <small>скоро</small></button>
+      </nav>
+      <div class="version">Версия 0.1.0<br>Канал обновлений: stable</div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <select id="projectSelect" aria-label="Репозиторий"></select>
+        <select id="branchSelect" aria-label="Ветка"></select>
+        <span id="syncStatus" class="sync-status">Локальная копия</span>
+        <button id="syncButton" class="secondary">Синхронизировать</button>
+      </header>
+
+      <section class="content">
+        <div class="heading">
+          <div><h1>Изменения конфигурации</h1><p>Коммиты Git, переведённые на язык объектов 1С</p></div>
+          <input id="searchInput" type="search" placeholder="Поиск по коммитам" aria-label="Поиск по коммитам">
+        </div>
+
+        <div id="emptyState" class="empty hidden"></div>
+        <div id="workspace" class="workspace">
+          <section class="panel commit-panel">
+            <div class="panel-title">Последние коммиты</div>
+            <div id="commitList" class="commit-list" aria-live="polite"></div>
+          </section>
+
+          <section class="panel detail-panel">
+            <div id="commitDetail" class="detail-placeholder">Выберите коммит слева</div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
