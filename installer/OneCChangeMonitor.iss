@@ -1,5 +1,5 @@
 #define MyAppName "ConfigScope"
-#define MyAppVersion "0.3.0"
+#define MyAppVersion "0.3.1"
 #define MyAppPublisher "ConfigScope"
 #define MyAppURL "https://github.com/butvinskiyvsr-cmyk/onec-change-monitor"
 #define MyAppExeName "ConfigScope.exe"

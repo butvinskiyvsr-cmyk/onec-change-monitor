@@ -90,6 +90,7 @@ public sealed record ChangedFileItem(ChangedFile Source)
         ? Source.Path
         : $"{Source.OneCObject.ObjectType}.{Source.OneCObject.ObjectName}";
     public string Subtitle => Source.OneCObject?.Component ?? Source.Path;
+    public string GroupTitle => Source.OneCObject is null ? "Прочие файлы" : Title;
     public string KindGlyph => Source.OneCObject?.IsCode == true ? "</>" : "XML";
     public bool IsCode => Source.OneCObject?.IsCode == true || Path.EndsWith(".bsl", StringComparison.OrdinalIgnoreCase);
     public bool IsXml => Path.EndsWith(".xml", StringComparison.OrdinalIgnoreCase);

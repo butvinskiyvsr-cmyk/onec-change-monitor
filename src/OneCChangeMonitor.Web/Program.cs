@@ -22,7 +22,7 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 var api = app.MapGroup("/api");
-api.MapGet("/health", () => Results.Ok(new { status = "ok", version = "0.1.0" }));
+api.MapGet("/health", () => Results.Ok(new { status = "ok", version = "0.3.1" }));
 api.MapGet("/projects", (ChangeMonitorService service) => service.GetProjects().Select(project => new
 {
     project.Id,
@@ -33,6 +33,8 @@ api.MapGet("/projects", (ChangeMonitorService service) => service.GetProjects().
 }));
 api.MapGet("/projects/{projectId}/branches", async (string projectId, ChangeMonitorService service, CancellationToken token) =>
     Results.Ok(await service.GetBranchesAsync(projectId, token)));
+api.MapGet("/projects/{projectId}/branches/{branch}/status", async (string projectId, string branch, ChangeMonitorService service, CancellationToken token) =>
+    Results.Ok(await service.GetBranchStatusAsync(projectId, branch, token)));
 api.MapGet("/projects/{projectId}/commits", async (string projectId, string? branch, int? limit, ChangeMonitorService service, CancellationToken token) =>
     Results.Ok(await service.GetCommitsAsync(projectId, branch, limit ?? 40, token)));
 api.MapGet("/projects/{projectId}/commits/{sha}", async (string projectId, string sha, ChangeMonitorService service, CancellationToken token) =>

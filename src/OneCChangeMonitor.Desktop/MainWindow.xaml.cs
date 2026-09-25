@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Media;
 using OneCChangeMonitor.Application;
 using OneCChangeMonitor.Domain;
@@ -103,6 +104,7 @@ public partial class MainWindow : Window
             _changingSelection = false;
             UpdateRepositoryStatus("история загружена");
             await LoadCommitsAsync();
+            await RefreshRepositoryStatusAsync();
         }
         catch (Exception exception)
         {
@@ -119,7 +121,11 @@ public partial class MainWindow : Window
     {
         if (_changingSelection || _service is null || _project is null || BranchCombo.SelectedItem is null) return;
         UpdateRepositoryStatus("история загружена");
-        await RunUiOperationAsync(LoadCommitsAsync, "Чтение истории…");
+        await RunUiOperationAsync(async () =>
+        {
+            await LoadCommitsAsync();
+            await RefreshRepositoryStatusAsync();
+        }, "Чтение истории…");
     }
 
     private void UpdateRepositoryStatus(string state)
@@ -129,6 +135,18 @@ public partial class MainWindow : Window
         var source = GetGitSourceName(_project);
         ProjectMetaText.Text = $"{branch} · {source}";
         SyncLabel.Text = $"{source} · {branch} · {state}";
+    }
+
+    private async Task RefreshRepositoryStatusAsync()
+    {
+        if (_service is null || _project is null || BranchCombo.SelectedItem is not string branch) return;
+        var status = await _service.GetBranchStatusAsync(_project.Id, branch, CancellationToken.None);
+        var source = GetGitSourceName(_project);
+        ProjectMetaText.Text = $"{branch} · {source}";
+        SyncLabel.Text = $"{source} · {status.ActiveReference} · {status.State}";
+        SyncDot.Fill = status.Ahead == 0 && status.Behind == 0
+            ? (Brush)FindResource("SuccessBrush")
+            : (Brush)FindResource("WarningBrush");
     }
 
     private static string GetGitSourceName(RepositoryProject project)
@@ -147,7 +165,7 @@ public partial class MainWindow : Window
         ApplyCommitFilter();
         CommitCountBadge.Text = _commits.Count.ToString();
         OverviewCommitCount.Text = _commits.Count.ToString();
-        CommitList.SelectedItem = _commits.FirstOrDefault(item => !item.Subject.StartsWith("Merge ", StringComparison.OrdinalIgnoreCase)) ?? _commits.FirstOrDefault();
+        CommitList.SelectedItem = _commits.FirstOrDefault();
         SetStatus($"Загружено коммитов: {_commits.Count}");
     }
 
@@ -187,8 +205,12 @@ public partial class MainWindow : Window
     private void RenderCommit(CommitDetails details)
     {
         CommitTitle.Text = details.Commit.Subject;
-        CommitMeta.Text = $"{details.Commit.ShortSha} · {details.Commit.Author} · {details.Commit.AuthoredAt.LocalDateTime:g}";
-        _currentFiles = details.Files.Select(file => new ChangedFileItem(file)).ToList();
+        var mergeLabel = details.ParentCount > 1 ? $" · merge ({details.ParentCount} родителя)" : string.Empty;
+        CommitMeta.Text = $"{details.Commit.ShortSha} · {details.Commit.Author} · {details.Commit.AuthoredAt.LocalDateTime:g}{mergeLabel}";
+        _currentFiles = details.Files.Select(file => new ChangedFileItem(file))
+            .OrderBy(file => file.GroupTitle, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(file => file.Subtitle, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
 
         var objectCount = details.Files.Where(file => file.OneCObject is not null)
             .Select(file => $"{file.OneCObject!.ObjectType}.{file.OneCObject.ObjectName}")
@@ -197,7 +219,10 @@ public partial class MainWindow : Window
 
         _qualityFindings = AnalyzeFiles(details.Files);
         RenderQuality();
-        ShowWarning(_qualityFindings.Count > 0 ? $"Проверки обнаружили замечаний: {_qualityFindings.Count}" : null);
+        var warning = _qualityFindings.Count > 0 ? $"Проверки обнаружили замечаний: {_qualityFindings.Count}" : null;
+        if (details.ParentCount > 1)
+            warning = $"Merge-коммит сравнивается с первым родителем{(warning is null ? "." : $". {warning}")}";
+        ShowWarning(warning);
         ClearDiff();
         CodeFilterButton.IsChecked = true;
         UpdateFileFilterCaptions();
@@ -230,7 +255,9 @@ public partial class MainWindow : Window
             _ => _currentFiles
         };
 
-        FileList.ItemsSource = filtered;
+        var view = new ListCollectionView(filtered);
+        view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(ChangedFileItem.GroupTitle)));
+        FileList.ItemsSource = view;
         FileCountText.Text = $"{filtered.Count} из {_currentFiles.Count}";
         FileEmptyPanel.Visibility = filtered.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         FileList.Visibility = filtered.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
@@ -247,14 +274,24 @@ public partial class MainWindow : Window
 
     private static List<QualityFinding> AnalyzeFiles(IEnumerable<ChangedFile> files)
     {
+        var materialized = files.ToArray();
         var result = new List<QualityFinding>();
-        foreach (var file in files)
+        foreach (var group in materialized.GroupBy(
+                     file => file.OneCObject is null ? file.Path : $"{file.OneCObject.ObjectType}.{file.OneCObject.ObjectName}",
+                     StringComparer.OrdinalIgnoreCase))
         {
-            if (file.OneCObject?.IsSuspicious == true)
-                result.Add(new QualityFinding("Резервный или бинарный файл", file.Path, "Требует проверки"));
-            if (file.Path.Contains("Roles/", StringComparison.OrdinalIgnoreCase) || file.Path.EndsWith("Rights.xml", StringComparison.OrdinalIgnoreCase))
-                result.Add(new QualityFinding("Изменены права доступа", file.Path, "Средний риск"));
+            var suspicious = group.Where(file => file.OneCObject?.IsSuspicious == true).ToArray();
+            if (suspicious.Length > 0)
+                result.Add(new QualityFinding("Резервные или бинарные файлы", $"{group.Key}: {suspicious.Length}", "Высокий риск"));
+            if (group.Any(file => file.Path.Contains("Roles/", StringComparison.OrdinalIgnoreCase) || file.Path.EndsWith("Rights.xml", StringComparison.OrdinalIgnoreCase)))
+                result.Add(new QualityFinding("Изменены права доступа", group.Key, "Высокий риск"));
         }
+
+        var changedLines = materialized.Sum(file => (file.AddedLines ?? 0) + (file.DeletedLines ?? 0));
+        if (changedLines >= 1000)
+            result.Add(new QualityFinding("Крупное изменение", $"Изменено строк: {changedLines:N0}", "Требует проверки"));
+        if (materialized.Length >= 50)
+            result.Add(new QualityFinding("Большой коммит", $"Изменено файлов: {materialized.Length}", "Требует проверки"));
         return result;
     }
 
@@ -362,8 +399,8 @@ public partial class MainWindow : Window
             SyncDot.Fill = (Brush)FindResource("WarningBrush");
             await _service.FetchAsync(_project.Id, CancellationToken.None);
             await LoadCommitsAsync();
-            UpdateRepositoryStatus($"синхронизировано {DateTime.Now:HH:mm}");
-            SyncDot.Fill = (Brush)FindResource("SuccessBrush");
+            await RefreshRepositoryStatusAsync();
+            SetStatus($"Синхронизировано {DateTime.Now:HH:mm}");
         }, "Получение изменений из Git…");
     }
 

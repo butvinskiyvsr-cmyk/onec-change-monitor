@@ -30,6 +30,17 @@ public sealed class OneCPathClassifierTests
     }
 
     [Fact]
+    public void MarksBinaryFormBackupAsSuspicious()
+    {
+        var result = new OneCPathClassifier().Classify(Project, "src/cf/Documents/ЗаказПокупателя/Forms/ФормаДокумента/Ext/Form.bin.orig");
+
+        Assert.NotNull(result);
+        Assert.Equal("Документ", result.ObjectType);
+        Assert.Equal("ЗаказПокупателя", result.ObjectName);
+        Assert.True(result.IsSuspicious);
+    }
+
+    [Fact]
     public void IgnoresNonOneCPath()
     {
         Assert.Null(new OneCPathClassifier().Classify(Project, "README.md"));

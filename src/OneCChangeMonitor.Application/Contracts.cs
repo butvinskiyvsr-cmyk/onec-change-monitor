@@ -11,6 +11,7 @@ public interface IProjectCatalog
 public interface IGitRepositoryReader
 {
     Task<IReadOnlyList<string>> GetBranchesAsync(RepositoryProject project, CancellationToken cancellationToken);
+    Task<BranchStatus> GetBranchStatusAsync(RepositoryProject project, string branch, CancellationToken cancellationToken);
     Task<IReadOnlyList<CommitSummary>> GetCommitsAsync(RepositoryProject project, string branch, int limit, CancellationToken cancellationToken);
     Task<CommitDetails?> GetCommitAsync(RepositoryProject project, string sha, CancellationToken cancellationToken);
     Task<FileDiff> GetDiffAsync(RepositoryProject project, string sha, string path, CancellationToken cancellationToken);
@@ -28,6 +29,9 @@ public sealed class ChangeMonitorService(IProjectCatalog projects, IGitRepositor
 
     public Task<IReadOnlyList<string>> GetBranchesAsync(string projectId, CancellationToken token) =>
         git.GetBranchesAsync(GetRequiredProject(projectId), token);
+
+    public Task<BranchStatus> GetBranchStatusAsync(string projectId, string branch, CancellationToken token) =>
+        git.GetBranchStatusAsync(GetRequiredProject(projectId), branch, token);
 
     public Task<IReadOnlyList<CommitSummary>> GetCommitsAsync(string projectId, string? branch, int limit, CancellationToken token)
     {

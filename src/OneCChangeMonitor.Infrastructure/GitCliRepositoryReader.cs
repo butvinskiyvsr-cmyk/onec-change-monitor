@@ -18,9 +18,38 @@ public sealed class GitCliRepositoryReader(IOneCPathClassifier classifier) : IGi
 
     public async Task<IReadOnlyList<CommitSummary>> GetCommitsAsync(RepositoryProject project, string branch, int limit, CancellationToken token)
     {
-        var reference = await HasReferenceAsync(project, branch, token) ? branch : $"origin/{branch}";
+        var reference = (await GetBranchStatusAsync(project, branch, token)).ActiveReference;
         var output = await RunGitAsync(project, token, "log", reference, $"-n{limit}", "--date=iso-strict", "--pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%s%x1e");
         return ParseCommits(output);
+    }
+
+    public async Task<BranchStatus> GetBranchStatusAsync(RepositoryProject project, string branch, CancellationToken token)
+    {
+        var localReference = await HasReferenceAsync(project, branch, token) ? branch : null;
+        var remoteName = $"origin/{branch}";
+        var remoteReference = await HasReferenceAsync(project, remoteName, token) ? remoteName : null;
+        if (localReference is null && remoteReference is null)
+            throw new InvalidOperationException($"Ветка '{branch}' не найдена.");
+
+        var localSha = localReference is null ? null : (await RunGitAsync(project, token, "rev-parse", localReference)).Trim();
+        var remoteSha = remoteReference is null ? null : (await RunGitAsync(project, token, "rev-parse", remoteReference)).Trim();
+        var ahead = 0;
+        var behind = 0;
+        if (localReference is not null && remoteReference is not null)
+        {
+            var counts = (await RunGitAsync(project, token, "rev-list", "--left-right", "--count", $"{localReference}...{remoteReference}"))
+                .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (counts.Length >= 2)
+            {
+                _ = int.TryParse(counts[0], out ahead);
+                _ = int.TryParse(counts[1], out behind);
+            }
+        }
+
+        var activeReference = remoteReference is null || (localReference is not null && ahead > 0 && behind == 0)
+            ? localReference!
+            : remoteReference;
+        return new BranchStatus(branch, activeReference, localSha, remoteSha, ahead, behind);
     }
 
     public async Task<CommitDetails?> GetCommitAsync(RepositoryProject project, string sha, CancellationToken token)
@@ -30,10 +59,17 @@ public sealed class GitCliRepositoryReader(IOneCPathClassifier classifier) : IGi
         var commit = ParseCommits(header).SingleOrDefault();
         if (commit is null) return null;
 
-        var names = await RunGitAsync(project, token, "diff-tree", "--root", "--no-commit-id", "--name-status", "-r", "-M", sha);
+        var parents = await GetParentsAsync(project, sha, token);
+        var names = parents.Count == 0
+            ? await RunGitAsync(project, token, "diff-tree", "--root", "--no-commit-id", "--name-status", "-r", "-M", sha)
+            : await RunGitAsync(project, token, "diff", "--name-status", "-M", parents[0], sha, "--");
+        var numStat = parents.Count == 0
+            ? await RunGitAsync(project, token, "show", "--format=", "--numstat", sha)
+            : await RunGitAsync(project, token, "diff", "--numstat", parents[0], sha, "--");
+        var lineStats = ParseLineStats(numStat);
         var files = names.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(ParseFile).Where(file => file is not null).Cast<ChangedFile>().ToArray();
-        return new CommitDetails(commit, files);
+        return new CommitDetails(commit, files, parents.Count, parents.FirstOrDefault());
 
         ChangedFile? ParseFile(string line)
         {
@@ -41,7 +77,8 @@ public sealed class GitCliRepositoryReader(IOneCPathClassifier classifier) : IGi
             if (fields.Length < 2) return null;
             var renamed = fields[0].StartsWith('R') && fields.Length >= 3;
             var path = renamed ? fields[2] : fields[1];
-            return new ChangedFile(fields[0], path, renamed ? fields[1] : null, classifier.Classify(project, path));
+            lineStats.TryGetValue(path, out var stats);
+            return new ChangedFile(fields[0], path, renamed ? fields[1] : null, classifier.Classify(project, path), stats.Added, stats.Deleted);
         }
     }
 
@@ -50,7 +87,10 @@ public sealed class GitCliRepositoryReader(IOneCPathClassifier classifier) : IGi
         ValidateSha(sha);
         if (string.IsNullOrWhiteSpace(path) || Path.IsPathRooted(path) || path.Contains("..", StringComparison.Ordinal))
             throw new ArgumentException("Некорректный путь файла.", nameof(path));
-        var content = await RunGitAsync(project, token, "show", "--format=", "--no-ext-diff", "--unified=6", sha, "--", path);
+        var parents = await GetParentsAsync(project, sha, token);
+        var content = parents.Count == 0
+            ? await RunGitAsync(project, token, "show", "--format=", "--no-ext-diff", "--unified=6", sha, "--", path)
+            : await RunGitAsync(project, token, "diff", "--no-ext-diff", "--unified=6", parents[0], sha, "--", path);
         return new FileDiff(sha, path, content, content.Contains("Binary files", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -65,6 +105,26 @@ public sealed class GitCliRepositoryReader(IOneCPathClassifier classifier) : IGi
     {
         var result = await RunGitProcessAsync(project, token, "rev-parse", "--verify", "--quiet", reference);
         return result.ExitCode == 0;
+    }
+
+    private static async Task<IReadOnlyList<string>> GetParentsAsync(RepositoryProject project, string sha, CancellationToken token)
+    {
+        var output = await RunGitAsync(project, token, "rev-list", "--parents", "-n", "1", sha);
+        return output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Skip(1).ToArray();
+    }
+
+    private static IReadOnlyDictionary<string, (int? Added, int? Deleted)> ParseLineStats(string output)
+    {
+        var result = new Dictionary<string, (int?, int?)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var fields = line.Split('\t');
+            if (fields.Length < 3) continue;
+            var added = int.TryParse(fields[0], out var addedValue) ? (int?)addedValue : null;
+            var deleted = int.TryParse(fields[1], out var deletedValue) ? (int?)deletedValue : null;
+            result[fields[^1]] = (added, deleted);
+        }
+        return result;
     }
 
     private static void ValidateSha(string sha)

@@ -8,7 +8,7 @@ public sealed record UpdateInfo(Version Version, string Tag, string Title, strin
 
 public sealed class UpdateService
 {
-    public static readonly Version CurrentVersion = new(0, 3, 0);
+    public static readonly Version CurrentVersion = new(0, 3, 1);
     private static readonly Uri LatestReleaseApi = new("https://api.github.com/repos/butvinskiyvsr-cmyk/onec-change-monitor/releases/latest");
     private readonly HttpClient _client;
 
