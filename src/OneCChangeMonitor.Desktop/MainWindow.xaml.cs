@@ -443,7 +443,11 @@ public partial class MainWindow : Window
         SetStatus($"Проект «{setup.Project.Name}» добавлен");
     }
 
-    private async void CheckUpdatesButton_Click(object sender, RoutedEventArgs e) => await CheckForUpdatesAsync(silent: false);
+    private async void CheckUpdatesButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_latestUpdate?.CanInstall == true) await InstallUpdateAsync(_latestUpdate);
+        else await CheckForUpdatesAsync(silent: false);
+    }
 
     private async Task CheckForUpdatesAsync(bool silent)
     {
@@ -458,9 +462,12 @@ public partial class MainWindow : Window
             {
                 LatestVersionText.Text = $"ДОСТУПНА {_latestUpdate.Tag}";
                 UpdateTitleText.Text = _latestUpdate.Title;
-                UpdateDescriptionText.Text = "Новая версия ConfigScope готова к загрузке.";
-                UpdateAvailableButton.Content = $"Доступна {_latestUpdate.Tag}";
+                UpdateDescriptionText.Text = _latestUpdate.CanInstall
+                    ? "Новая версия готова к автоматической установке. Загруженный файл будет проверен по SHA-256."
+                    : "Релиз найден, но автоматический установщик пока недоступен.";
+                UpdateAvailableButton.Content = _latestUpdate.CanInstall ? $"Установить {_latestUpdate.Tag}" : $"Доступна {_latestUpdate.Tag}";
                 UpdateAvailableButton.Visibility = Visibility.Visible;
+                CheckUpdatesButton.Content = _latestUpdate.CanInstall ? "Скачать и установить" : "Проверить ещё раз";
             }
             else
             {
@@ -468,17 +475,52 @@ public partial class MainWindow : Window
                 UpdateTitleText.Text = "ConfigScope актуален";
                 UpdateDescriptionText.Text = $"Текущая версия {UpdateService.CurrentVersion} не требует обновления.";
                 UpdateAvailableButton.Visibility = Visibility.Collapsed;
+                CheckUpdatesButton.Content = "Проверить обновления";
             }
         }
         catch (Exception exception)
         {
             LatestVersionText.Text = "НЕ УДАЛОСЬ ПРОВЕРИТЬ";
             UpdateDescriptionText.Text = exception.Message;
+            CheckUpdatesButton.Content = "Повторить проверку";
             if (!silent) ShowError(exception);
         }
         finally
         {
             CheckUpdatesButton.IsEnabled = true;
+        }
+    }
+
+    private async Task InstallUpdateAsync(UpdateInfo update)
+    {
+        try
+        {
+            SetBusy(true, $"Загрузка {update.Tag}…");
+            LatestVersionText.Text = $"ЗАГРУЗКА {update.Tag}";
+            CheckUpdatesButton.Content = "Загрузка…";
+            var progress = new Progress<double>(value =>
+            {
+                var percent = Math.Clamp((int)Math.Round(value * 100), 0, 100);
+                UpdateDescriptionText.Text = $"Загрузка установщика: {percent}%";
+                SetStatus($"Загрузка обновления: {percent}%");
+            });
+            var installerPath = await _updateService.DownloadInstallerAsync(update, progress, CancellationToken.None);
+            LatestVersionText.Text = "УСТАНОВЩИК ПРОВЕРЕН";
+            UpdateDescriptionText.Text = "ConfigScope закроется, установит обновление и запустится снова.";
+            SetStatus("Запуск проверенного установщика…");
+            UpdateService.ScheduleInstallerAfterExit(installerPath);
+            System.Windows.Application.Current.Shutdown();
+        }
+        catch (Exception exception)
+        {
+            LatestVersionText.Text = "ОБНОВЛЕНИЕ НЕ УСТАНОВЛЕНО";
+            UpdateDescriptionText.Text = exception.Message;
+            CheckUpdatesButton.Content = "Повторить установку";
+            ShowError(exception);
+        }
+        finally
+        {
+            SetBusy(false);
         }
     }
 
@@ -488,7 +530,18 @@ public partial class MainWindow : Window
         return normalized.Length <= 900 ? normalized : normalized[..900] + "…";
     }
 
-    private void UpdateAvailableButton_Click(object sender, RoutedEventArgs e) { UpdatesNav.IsChecked = true; ShowPage("Updates"); }
+    private async void UpdateAvailableButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_latestUpdate?.CanInstall == true)
+        {
+            UpdatesNav.IsChecked = true;
+            ShowPage("Updates");
+            await InstallUpdateAsync(_latestUpdate);
+            return;
+        }
+        UpdatesNav.IsChecked = true;
+        ShowPage("Updates");
+    }
     private void OpenReleaseButton_Click(object sender, RoutedEventArgs e) { if (_latestUpdate is not null) Process.Start(new ProcessStartInfo(_latestUpdate.ReleaseUri.AbsoluteUri) { UseShellExecute = true }); }
 
     private async void UpdatePreference_Click(object sender, RoutedEventArgs e)

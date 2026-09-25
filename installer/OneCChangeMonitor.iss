@@ -1,5 +1,5 @@
 #define MyAppName "ConfigScope"
-#define MyAppVersion "0.3.1"
+#define MyAppVersion "0.3.2"
 #define MyAppPublisher "ConfigScope"
 #define MyAppURL "https://github.com/butvinskiyvsr-cmyk/onec-change-monitor"
 #define MyAppExeName "ConfigScope.exe"
@@ -53,3 +53,4 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDi
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Запустить {#MyAppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait skipifnotsilent

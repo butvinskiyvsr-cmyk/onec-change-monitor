@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\OneCChangeMonitor.Domain\OneCChangeMonitor.Domain.csproj" />
     <ProjectReference Include="..\..\src\OneCChangeMonitor.Application\OneCChangeMonitor.Application.csproj" />
     <ProjectReference Include="..\..\src\OneCChangeMonitor.Infrastructure\OneCChangeMonitor.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\OneCChangeMonitor.Desktop\OneCChangeMonitor.Desktop.csproj" />
   </ItemGroup>
 
 </Project>
