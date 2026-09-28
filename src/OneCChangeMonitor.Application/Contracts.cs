@@ -23,6 +23,11 @@ public interface IOneCPathClassifier
     OneCObjectReference? Classify(RepositoryProject project, string path);
 }
 
+public interface IChangeTreeBuilder
+{
+    ChangeTreeNode Build(CommitDetails commit);
+}
+
 public sealed class ChangeMonitorService(IProjectCatalog projects, IGitRepositoryReader git)
 {
     public IReadOnlyList<RepositoryProject> GetProjects() => projects.GetAll();

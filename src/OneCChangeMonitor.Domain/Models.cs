@@ -37,3 +37,35 @@ public sealed record BranchStatus(
         : Behind == 0 ? $"локальная опережает на {Ahead}"
         : $"ветки разошлись: +{Ahead} / −{Behind}";
 }
+
+public enum ChangeTreeNodeKind
+{
+    Source,
+    MetadataType,
+    Object,
+    Component,
+    File,
+    SemanticChange
+}
+
+public enum ChangeType
+{
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+    Unchanged,
+    Unknown
+}
+
+public sealed record ChangeTreeNode(
+    string Id,
+    string Name,
+    ChangeTreeNodeKind Kind,
+    ChangeType ChangeType,
+    string? Path,
+    string? Description,
+    int AddedLines,
+    int DeletedLines,
+    string? RiskLevel,
+    IReadOnlyList<ChangeTreeNode> Children);

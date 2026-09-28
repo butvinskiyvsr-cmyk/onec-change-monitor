@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
 using System.Windows.Media;
 using OneCChangeMonitor.Application;
 using OneCChangeMonitor.Domain;
@@ -12,6 +11,7 @@ namespace OneCChangeMonitor.Desktop;
 public partial class MainWindow : Window
 {
     private readonly UpdateService _updateService = new();
+    private readonly IChangeTreeBuilder _changeTreeBuilder = new ChangeTreeBuilder();
     private ChangeMonitorService? _service;
     private DesktopSettings _settings = new();
     private IReadOnlyList<RepositoryProject> _projects = [];
@@ -19,6 +19,7 @@ public partial class MainWindow : Window
     private UpdateInfo? _latestUpdate;
     private List<CommitItem> _commits = [];
     private List<ChangedFileItem> _currentFiles = [];
+    private ChangeTreeNode? _currentTree;
     private List<QualityFinding> _qualityFindings = [];
     private FileDiff? _currentDiff;
     private ChangedFileItem? _currentDiffFile;
@@ -211,6 +212,7 @@ public partial class MainWindow : Window
             .OrderBy(file => file.GroupTitle, StringComparer.CurrentCultureIgnoreCase)
             .ThenBy(file => file.Subtitle, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
+        _currentTree = _changeTreeBuilder.Build(details);
 
         var objectCount = details.Files.Where(file => file.OneCObject is not null)
             .Select(file => $"{file.OneCObject!.ObjectType}.{file.OneCObject.ObjectName}")
@@ -224,6 +226,7 @@ public partial class MainWindow : Window
             warning = $"Merge-коммит сравнивается с первым родителем{(warning is null ? "." : $". {warning}")}";
         ShowWarning(warning);
         ClearDiff();
+        TreeSearchBox.Text = string.Empty;
         CodeFilterButton.IsChecked = true;
         UpdateFileFilterCaptions();
         ApplyFileFilter(selectFirst: true);
@@ -247,27 +250,49 @@ public partial class MainWindow : Window
 
     private void ApplyFileFilter(bool selectFirst)
     {
-        var filter = (CodeFilterButton.IsChecked == true ? "Code" : XmlFilterButton.IsChecked == true ? "Xml" : "All");
+        if (_currentTree is null) return;
+        var filter = CodeFilterButton.IsChecked == true ? ChangeTreeFilter.Code
+            : XmlFilterButton.IsChecked == true ? ChangeTreeFilter.Xml
+            : ChangeTreeFilter.All;
         var filtered = filter switch
         {
-            "Code" => _currentFiles.Where(file => file.IsCode).ToList(),
-            "Xml" => _currentFiles.Where(file => file.IsXml && !file.IsCode).ToList(),
+            ChangeTreeFilter.Code => _currentFiles.Where(file => file.IsCode).ToList(),
+            ChangeTreeFilter.Xml => _currentFiles.Where(file => file.IsXml && !file.IsCode).ToList(),
             _ => _currentFiles
         };
 
-        var view = new ListCollectionView(filtered);
-        view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(ChangedFileItem.GroupTitle)));
-        FileList.ItemsSource = view;
+        var treeItems = ChangeTreeItem.Build(_currentTree, _currentFiles, filter, TreeSearchBox.Text);
+        if (selectFirst)
+        {
+            var firstFile = FindFirstFile(treeItems);
+            if (firstFile is not null) firstFile.IsSelected = true;
+        }
+        ChangeTree.ItemsSource = treeItems;
         FileCountText.Text = $"{filtered.Count} из {_currentFiles.Count}";
         FileEmptyPanel.Visibility = filtered.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        FileList.Visibility = filtered.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        ChangeTree.Visibility = filtered.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         ChangeViewSubtitle.Text = filter switch
         {
-            "Code" => "Показаны только изменения кода · XML скрыты",
-            "Xml" => "Показаны XML-файлы метаданных",
+            ChangeTreeFilter.Code => "Дерево объектов · показаны изменения кода",
+            ChangeTreeFilter.Xml => "Дерево объектов · показаны XML-файлы",
             _ => "Показаны все файлы коммита"
         };
-        if (selectFirst) FileList.SelectedItem = filtered.FirstOrDefault();
+    }
+
+    private void TreeSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (IsLoaded && _currentTree is not null) ApplyFileFilter(selectFirst: false);
+    }
+
+    private static ChangeTreeItem? FindFirstFile(IEnumerable<ChangeTreeItem> items)
+    {
+        foreach (var item in items)
+        {
+            if (item.IsFile) return item;
+            var child = FindFirstFile(item.Children);
+            if (child is not null) return child;
+        }
+        return null;
     }
 
     private void ShowAllFiles_Click(object sender, RoutedEventArgs e) => AllFilterButton.IsChecked = true;
@@ -305,9 +330,17 @@ public partial class MainWindow : Window
         OverviewWarningCount.Text = _qualityFindings.Count.ToString();
     }
 
-    private async void FileList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void ChangeTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
-        if (_service is null || _project is null || CommitList.SelectedItem is not CommitItem commit || FileList.SelectedItem is not ChangedFileItem file) return;
+        if (e.NewValue is not ChangeTreeItem item) return;
+        if (!item.IsFile || string.IsNullOrWhiteSpace(item.Path))
+        {
+            ShowTreeSummary(item);
+            return;
+        }
+
+        var file = _currentFiles.FirstOrDefault(candidate => string.Equals(candidate.Path, item.Path, StringComparison.OrdinalIgnoreCase));
+        if (_service is null || _project is null || CommitList.SelectedItem is not CommitItem commit || file is null) return;
         _diffCancellation?.Cancel();
         _diffCancellation = new CancellationTokenSource();
         try
@@ -491,6 +524,22 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ShowTreeSummary(ChangeTreeItem item)
+    {
+        _diffCancellation?.Cancel();
+        _currentDiff = null;
+        _currentDiffFile = null;
+        SingleDiffPanel.Visibility = Visibility.Collapsed;
+        SplitDiffPanel.Visibility = Visibility.Collapsed;
+        EmptyDiffPanel.Visibility = Visibility.Visible;
+        DiffObjectTitle.Text = item.Name;
+        DiffPath.Text = item.KindText;
+        SummaryTitleText.Text = "Сводка по выбранному узлу";
+        var stats = string.IsNullOrWhiteSpace(item.StatsText) ? "Нет данных о строках" : item.StatsText;
+        var risk = string.IsNullOrWhiteSpace(item.RiskText) ? "риск не выявлен" : item.RiskText;
+        SummaryDetailsText.Text = $"{item.DetailText} · {stats} · {risk}";
+    }
+
     private async Task InstallUpdateAsync(UpdateInfo update)
     {
         try
@@ -569,6 +618,8 @@ public partial class MainWindow : Window
         SingleDiffPanel.Visibility = Visibility.Collapsed;
         SplitDiffPanel.Visibility = Visibility.Collapsed;
         EmptyDiffPanel.Visibility = Visibility.Visible;
+        SummaryTitleText.Text = "Выберите файл, чтобы увидеть изменения";
+        SummaryDetailsText.Text = string.Empty;
     }
 
     private void ShowWarning(string? message)
