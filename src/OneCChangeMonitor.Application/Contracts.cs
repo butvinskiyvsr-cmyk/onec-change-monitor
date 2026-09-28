@@ -15,6 +15,7 @@ public interface IGitRepositoryReader
     Task<IReadOnlyList<CommitSummary>> GetCommitsAsync(RepositoryProject project, string branch, int limit, CancellationToken cancellationToken);
     Task<CommitDetails?> GetCommitAsync(RepositoryProject project, string sha, CancellationToken cancellationToken);
     Task<FileDiff> GetDiffAsync(RepositoryProject project, string sha, string path, CancellationToken cancellationToken);
+    Task<IReadOnlyList<CommitSummary>> GetPathHistoryAsync(RepositoryProject project, IReadOnlyList<string> paths, int limit, CancellationToken cancellationToken);
     Task FetchAsync(RepositoryProject project, CancellationToken cancellationToken);
 }
 
@@ -26,6 +27,11 @@ public interface IOneCPathClassifier
 public interface IChangeTreeBuilder
 {
     ChangeTreeNode Build(CommitDetails commit);
+}
+
+public interface IConfigurationObjectIndex
+{
+    Task<IReadOnlyList<ConfigurationObject>> BuildAsync(RepositoryProject project, CancellationToken cancellationToken);
 }
 
 public sealed class ChangeMonitorService(IProjectCatalog projects, IGitRepositoryReader git)
@@ -46,6 +52,8 @@ public sealed class ChangeMonitorService(IProjectCatalog projects, IGitRepositor
 
     public Task<CommitDetails?> GetCommitAsync(string projectId, string sha, CancellationToken token) => git.GetCommitAsync(GetRequiredProject(projectId), sha, token);
     public Task<FileDiff> GetDiffAsync(string projectId, string sha, string path, CancellationToken token) => git.GetDiffAsync(GetRequiredProject(projectId), sha, path, token);
+    public Task<IReadOnlyList<CommitSummary>> GetPathHistoryAsync(string projectId, IReadOnlyList<string> paths, int limit, CancellationToken token) =>
+        git.GetPathHistoryAsync(GetRequiredProject(projectId), paths, Math.Clamp(limit, 1, 200), token);
     public Task FetchAsync(string projectId, CancellationToken token) => git.FetchAsync(GetRequiredProject(projectId), token);
 
     private RepositoryProject GetRequiredProject(string id) => projects.Find(id) ?? throw new KeyNotFoundException($"Проект '{id}' не найден.");

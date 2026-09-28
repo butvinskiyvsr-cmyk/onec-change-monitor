@@ -94,6 +94,31 @@ public sealed class GitCliRepositoryReader(IOneCPathClassifier classifier) : IGi
         return new FileDiff(sha, path, content, content.Contains("Binary files", StringComparison.OrdinalIgnoreCase));
     }
 
+    public async Task<IReadOnlyList<CommitSummary>> GetPathHistoryAsync(
+        RepositoryProject project,
+        IReadOnlyList<string> paths,
+        int limit,
+        CancellationToken token)
+    {
+        var safePaths = paths.Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path.Replace('\\', '/'))
+            .Where(path => !Path.IsPathRooted(path) && !path.Contains("..", StringComparison.Ordinal))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (safePaths.Length == 0) return [];
+
+        var arguments = new List<string>
+        {
+            "log",
+            $"-n{Math.Clamp(limit, 1, 200)}",
+            "--date=iso-strict",
+            "--pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%s%x1e",
+            "--"
+        };
+        arguments.AddRange(safePaths);
+        return ParseCommits(await RunGitAsync(project, token, arguments.ToArray()));
+    }
+
     public async Task FetchAsync(RepositoryProject project, CancellationToken token) => _ = await RunGitAsync(project, token, "fetch", "--prune", "origin");
 
     private static IReadOnlyList<CommitSummary> ParseCommits(string output) => output

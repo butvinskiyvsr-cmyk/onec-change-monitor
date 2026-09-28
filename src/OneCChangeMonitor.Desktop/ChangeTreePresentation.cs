@@ -15,7 +15,7 @@ public sealed class ChangeTreeItem
     {
         Node = node;
         Children = children;
-        IsExpanded = node.Kind is ChangeTreeNodeKind.Source or ChangeTreeNodeKind.MetadataType or ChangeTreeNodeKind.Object;
+        IsExpanded = node.Kind == ChangeTreeNodeKind.Source;
     }
 
     public ChangeTreeNode Node { get; }

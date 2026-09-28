@@ -11,6 +11,8 @@ public sealed class DesktopSettings
 {
     public List<ProjectSettings> Projects { get; init; } = [];
     public bool CheckForUpdatesOnStartup { get; set; } = true;
+    public bool IsSidebarCollapsed { get; set; }
+    public Dictionary<string, List<HiddenCommitSettings>> HiddenCommits { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 
     public static string UserSettingsPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -52,23 +54,26 @@ public sealed class ProjectSettings
     public string DefaultBranch { get; init; } = "master";
     public string[] SourceRoots { get; init; } = [];
 
-    public RepositoryProject ToDomain() => new(
-        Id,
-        Name,
-        Path.GetFullPath(LocalPath),
-        RemoteUrl,
-        DefaultBranch,
-        SourceRoots.Length == 0 ? ["src/cf", "src/cfe", "src/epf", "src/erf"] : SourceRoots);
+    public RepositoryProject ToDomain()
+    {
+        var fullPath = Path.GetFullPath(LocalPath);
+        var sourceRoots = SourceRoots.Length > 0 ? SourceRoots
+            : File.Exists(Path.Combine(fullPath, "src", "Configuration.xml")) ? ["src"]
+            : ["src/cf", "src/cfe", "src/epf", "src/erf"];
+        return new RepositoryProject(Id, Name, fullPath, RemoteUrl, DefaultBranch, sourceRoots);
+    }
 }
 
 public sealed record CommitItem(CommitSummary Source)
 {
+    public string? HiddenReason { get; set; }
     public string Sha => Source.Sha;
     public string ShortSha => Source.ShortSha;
     public string Subject => Source.Subject;
     public string Author => Source.Author;
     public string Meta => $"{Source.Author} · {Source.AuthoredAt.LocalDateTime:g}";
     public string RelativeTime => FormatRelativeTime(Source.AuthoredAt);
+    public string HiddenLabel => string.IsNullOrWhiteSpace(HiddenReason) ? string.Empty : $"Скрыт: {HiddenReason}";
 
     private static string FormatRelativeTime(DateTimeOffset value)
     {
@@ -96,9 +101,62 @@ public sealed record ChangedFileItem(ChangedFile Source)
     public bool IsXml => Path.EndsWith(".xml", StringComparison.OrdinalIgnoreCase);
 }
 
+public sealed class HiddenCommitSettings
+{
+    public string Sha { get; init; } = string.Empty;
+    public string Subject { get; init; } = string.Empty;
+    public string Reason { get; init; } = string.Empty;
+    public DateTimeOffset HiddenAt { get; init; } = DateTimeOffset.Now;
+}
+
 public sealed record ObjectListItem(string Title, string Description);
 
 public sealed record QualityFinding(string Title, string Description, string Severity);
+
+public sealed class ConfigurationTreeItem
+{
+    private ConfigurationTreeItem(string name, string kind, IReadOnlyList<ConfigurationTreeItem> children, ConfigurationObject? value)
+    {
+        Name = name;
+        Kind = kind;
+        Children = children;
+        Value = value;
+    }
+
+    public string Name { get; }
+    public string Kind { get; }
+    public IReadOnlyList<ConfigurationTreeItem> Children { get; }
+    public ConfigurationObject? Value { get; }
+    public string Detail => Value is null ? $"{CountObjects(this)} объект(ов)" : $"{Value.Components.Count} компонент(ов) · {Value.Files.Count} файл(ов)";
+
+    public static IReadOnlyList<ConfigurationTreeItem> Build(IEnumerable<ConfigurationObject> objects, string? query = null)
+    {
+        var normalizedQuery = query?.Trim() ?? string.Empty;
+        var filtered = string.IsNullOrWhiteSpace(normalizedQuery)
+            ? objects
+            : objects.Where(item => $"{item.SourceKind} {item.ObjectType} {item.Name} {string.Join(' ', item.Components)}"
+                .Contains(normalizedQuery, StringComparison.CurrentCultureIgnoreCase));
+        return filtered
+            .GroupBy(item => item.SourceKind, StringComparer.CurrentCultureIgnoreCase)
+            .OrderBy(group => group.Key, StringComparer.CurrentCultureIgnoreCase)
+            .Select(source => new ConfigurationTreeItem(
+                source.Key,
+                "ИСТОЧНИК",
+                source.GroupBy(item => item.ObjectType, StringComparer.CurrentCultureIgnoreCase)
+                    .OrderBy(group => group.Key, StringComparer.CurrentCultureIgnoreCase)
+                    .Select(type => new ConfigurationTreeItem(
+                        type.Key,
+                        "ТИП",
+                        type.OrderBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase)
+                            .Select(item => new ConfigurationTreeItem(item.Name, "ОБЪЕКТ", [], item)).ToArray(),
+                        null)).ToArray(),
+                null)).ToArray();
+    }
+
+    private static int CountObjects(ConfigurationTreeItem item) => item.Value is null
+        ? item.Children.Sum(CountObjects)
+        : 1;
+}
 
 public sealed class DiffDisplayRow
 {

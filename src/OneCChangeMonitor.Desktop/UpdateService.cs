@@ -23,7 +23,7 @@ public sealed record UpdateInfo(
 
 public sealed class UpdateService
 {
-    public static readonly Version CurrentVersion = new(0, 3, 3);
+    public static readonly Version CurrentVersion = new(0, 3, 4);
     private static readonly Uri LatestReleaseApi = new("https://api.github.com/repos/butvinskiyvsr-cmyk/onec-change-monitor/releases/latest");
     private readonly HttpClient _client;
     private readonly string _updatesRoot;

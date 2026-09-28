@@ -49,9 +49,15 @@ public partial class SetupWindow : Window
             LocalPath = path,
             RemoteUrl = RemoteBox.Text.Trim(),
             DefaultBranch = string.IsNullOrWhiteSpace(BranchBox.Text) ? "master" : BranchBox.Text.Trim(),
-            SourceRoots = ["src/cf", "src/cfe", "src/epf", "src/erf"]
+            SourceRoots = DetectSourceRoots(path)
         };
         DialogResult = true;
+    }
+
+    private static string[] DetectSourceRoots(string repositoryPath)
+    {
+        if (File.Exists(Path.Combine(repositoryPath, "src", "Configuration.xml"))) return ["src"];
+        return ["src/cf", "src/cfe", "src/epf", "src/erf"];
     }
 
     private static string CreateId(string name)

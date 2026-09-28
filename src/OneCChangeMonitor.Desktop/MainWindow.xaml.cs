@@ -12,6 +12,7 @@ public partial class MainWindow : Window
 {
     private readonly UpdateService _updateService = new();
     private readonly IChangeTreeBuilder _changeTreeBuilder = new ChangeTreeBuilder();
+    private readonly IConfigurationObjectIndex _configurationObjectIndex = new FileSystemConfigurationObjectIndex(new OneCPathClassifier());
     private ChangeMonitorService? _service;
     private DesktopSettings _settings = new();
     private IReadOnlyList<RepositoryProject> _projects = [];
@@ -21,12 +22,15 @@ public partial class MainWindow : Window
     private List<ChangedFileItem> _currentFiles = [];
     private ChangeTreeNode? _currentTree;
     private List<QualityFinding> _qualityFindings = [];
+    private IReadOnlyList<ConfigurationObject> _configurationObjects = [];
     private FileDiff? _currentDiff;
     private ChangedFileItem? _currentDiffFile;
     private bool _forceSplitDiff;
     private bool _changingSelection;
     private CancellationTokenSource? _detailsCancellation;
     private CancellationTokenSource? _diffCancellation;
+    private CancellationTokenSource? _objectIndexCancellation;
+    private CancellationTokenSource? _objectHistoryCancellation;
 
     public MainWindow()
     {
@@ -40,6 +44,7 @@ public partial class MainWindow : Window
         {
             SetStatus("Загрузка настроек…");
             _settings = await DesktopSettings.TryLoadAsync() ?? new DesktopSettings();
+            ApplySidebarState();
             if (_settings.Projects.Count == 0)
             {
                 var setup = new SetupWindow { Owner = this };
@@ -91,6 +96,8 @@ public partial class MainWindow : Window
     {
         if (_service is null) return;
         _project = project;
+        _configurationObjects = [];
+        if (ConfigurationObjectTree is not null) ConfigurationObjectTree.ItemsSource = null;
         ProjectNameText.Text = project.Name;
         ProjectMetaText.Text = $"{project.DefaultBranch} · {GetGitSourceName(project)}";
         OverviewProjectName.Text = project.Name;
@@ -106,6 +113,7 @@ public partial class MainWindow : Window
             UpdateRepositoryStatus("история загружена");
             await LoadCommitsAsync();
             await RefreshRepositoryStatusAsync();
+            _ = LoadConfigurationObjectsAsync();
         }
         catch (Exception exception)
         {
@@ -164,9 +172,7 @@ public partial class MainWindow : Window
         var commits = await _service.GetCommitsAsync(_project.Id, branch, 100, CancellationToken.None);
         _commits = commits.Select(item => new CommitItem(item)).ToList();
         ApplyCommitFilter();
-        CommitCountBadge.Text = _commits.Count.ToString();
-        OverviewCommitCount.Text = _commits.Count.ToString();
-        CommitList.SelectedItem = _commits.FirstOrDefault();
+        CommitList.SelectedItem = CommitList.Items.Cast<object>().FirstOrDefault();
         SetStatus($"Загружено коммитов: {_commits.Count}");
     }
 
@@ -176,11 +182,55 @@ public partial class MainWindow : Window
     {
         if (CommitList is null) return;
         var query = SearchBox?.Text?.Trim() ?? string.Empty;
-        var items = string.IsNullOrWhiteSpace(query)
-            ? _commits
-            : _commits.Where(item => $"{item.Subject} {item.Author} {item.ShortSha}".Contains(query, StringComparison.CurrentCultureIgnoreCase)).ToList();
-        CommitList.ItemsSource = items;
-        HistoryCaption.Text = $"{items.Count} комм.";
+        var hidden = GetHiddenCommits();
+        foreach (var item in _commits) item.HiddenReason = hidden.TryGetValue(item.Sha, out var hiddenItem) ? hiddenItem.Reason : null;
+        var items = _commits.Where(item => ShowHiddenCommitsBox?.IsChecked == true || !hidden.ContainsKey(item.Sha));
+        if (!string.IsNullOrWhiteSpace(query))
+            items = items.Where(item => $"{item.Subject} {item.Author} {item.ShortSha}".Contains(query, StringComparison.CurrentCultureIgnoreCase));
+        var materialized = items.ToList();
+        CommitList.ItemsSource = materialized;
+        HistoryCaption.Text = $"{materialized.Count} комм. · скрыто {hidden.Count}";
+        CommitCountBadge.Text = materialized.Count.ToString();
+        OverviewCommitCount.Text = materialized.Count.ToString();
+    }
+
+    private Dictionary<string, HiddenCommitSettings> GetHiddenCommits()
+    {
+        if (_project is null) return new Dictionary<string, HiddenCommitSettings>(StringComparer.OrdinalIgnoreCase);
+        return _settings.HiddenCommits.TryGetValue(_project.Id, out var values)
+            ? values.GroupBy(item => item.Sha, StringComparer.OrdinalIgnoreCase).ToDictionary(group => group.Key, group => group.Last(), StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, HiddenCommitSettings>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private async void HideCommit_Click(object sender, RoutedEventArgs e)
+    {
+        if (_project is null || sender is not MenuItem { DataContext: CommitItem commit } menu) return;
+        if (!_settings.HiddenCommits.TryGetValue(_project.Id, out var hidden))
+        {
+            hidden = [];
+            _settings.HiddenCommits[_project.Id] = hidden;
+        }
+        hidden.RemoveAll(item => item.Sha.Equals(commit.Sha, StringComparison.OrdinalIgnoreCase));
+        hidden.Add(new HiddenCommitSettings { Sha = commit.Sha, Subject = commit.Subject, Reason = menu.Tag as string ?? "Не относится к нашей разработке" });
+        await _settings.SaveAsync();
+        ApplyCommitFilter();
+        CommitList.SelectedItem = CommitList.Items.Cast<object>().FirstOrDefault();
+        SetStatus($"Коммит {commit.ShortSha} скрыт: {menu.Tag}");
+    }
+
+    private async void RestoreCommit_Click(object sender, RoutedEventArgs e)
+    {
+        if (_project is null || sender is not MenuItem { DataContext: CommitItem commit }) return;
+        if (_settings.HiddenCommits.TryGetValue(_project.Id, out var hidden))
+            hidden.RemoveAll(item => item.Sha.Equals(commit.Sha, StringComparison.OrdinalIgnoreCase));
+        await _settings.SaveAsync();
+        ApplyCommitFilter();
+        SetStatus($"Коммит {commit.ShortSha} возвращён в ленту");
+    }
+
+    private void ShowHiddenCommits_Changed(object sender, RoutedEventArgs e)
+    {
+        if (IsLoaded) ApplyCommitFilter();
     }
 
     private async void CommitList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -439,18 +489,99 @@ public partial class MainWindow : Window
 
     private void Navigation_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is RadioButton { Tag: string page }) ShowPage(page);
+        if (sender is not RadioButton { Tag: string page }) return;
+        ShowPage(page);
+        if (page == "Objects" && _configurationObjects.Count == 0) _ = LoadConfigurationObjectsAsync();
     }
 
     private void ShowPage(string page)
     {
         ChangesPage.Visibility = page == "Changes" ? Visibility.Visible : Visibility.Collapsed;
+        ObjectsPage.Visibility = page == "Objects" ? Visibility.Visible : Visibility.Collapsed;
         OverviewPage.Visibility = page == "Overview" ? Visibility.Visible : Visibility.Collapsed;
         ReleasesPage.Visibility = page == "Releases" ? Visibility.Visible : Visibility.Collapsed;
         QualityPage.Visibility = page == "Quality" ? Visibility.Visible : Visibility.Collapsed;
         ProjectsPage.Visibility = page == "Projects" ? Visibility.Visible : Visibility.Collapsed;
         UpdatesPage.Visibility = page == "Updates" ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async Task LoadConfigurationObjectsAsync()
+    {
+        if (_project is null) return;
+        _objectIndexCancellation?.Cancel();
+        _objectIndexCancellation = new CancellationTokenSource();
+        try
+        {
+            ObjectIndexStatusText.Text = "Индексирование структуры конфигурации…";
+            var project = _project;
+            _configurationObjects = await _configurationObjectIndex.BuildAsync(project, _objectIndexCancellation.Token);
+            if (_project?.Id != project.Id) return;
+            ObjectCountText.Text = _configurationObjects.Count.ToString();
+            ApplyObjectFilter();
+            ObjectIndexStatusText.Text = $"Найдено объектов: {_configurationObjects.Count:N0}";
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            ObjectIndexStatusText.Text = $"Не удалось построить индекс: {exception.Message}";
+        }
+    }
+
+    private void ObjectSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (IsLoaded) ApplyObjectFilter();
+    }
+
+    private void ApplyObjectFilter()
+    {
+        if (ConfigurationObjectTree is null) return;
+        ConfigurationObjectTree.ItemsSource = ConfigurationTreeItem.Build(_configurationObjects, ObjectSearchBox?.Text);
+    }
+
+    private async void ConfigurationObjectTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+    {
+        if (e.NewValue is not ConfigurationTreeItem { Value: { } value } || _service is null || _project is null) return;
+        ObjectDetailTitle.Text = $"{value.ObjectType}.{value.Name}";
+        ObjectDetailMeta.Text = $"{value.SourceKind} · {value.Files.Count} файл(ов)";
+        ObjectComponentsList.ItemsSource = value.Components;
+        ObjectHistoryList.ItemsSource = null;
+        ObjectHistoryStatusText.Text = "Загрузка истории объекта…";
+        _objectHistoryCancellation?.Cancel();
+        _objectHistoryCancellation = new CancellationTokenSource();
+        try
+        {
+            var history = await _service.GetPathHistoryAsync(_project.Id, value.HistoryPaths, 100, _objectHistoryCancellation.Token);
+            var hidden = GetHiddenCommits();
+            var visibleHistory = history.Where(commit => !hidden.ContainsKey(commit.Sha)).Select(commit => new CommitItem(commit)).ToArray();
+            ObjectHistoryList.ItemsSource = visibleHistory;
+            ObjectHistoryStatusText.Text = visibleHistory.Length == 0 ? "Изменения объекта не найдены" : $"Изменений в истории: {visibleHistory.Length}";
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            ObjectHistoryStatusText.Text = exception.Message;
+        }
+    }
+
+    private async void RefreshObjects_Click(object sender, RoutedEventArgs e) => await LoadConfigurationObjectsAsync();
+
+    private async void ToggleSidebar_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.IsSidebarCollapsed = !_settings.IsSidebarCollapsed;
+        ApplySidebarState();
+        await _settings.SaveAsync();
+    }
+
+    private void ApplySidebarState()
+    {
+        if (SidebarColumn is null) return;
+        SidebarColumn.Width = _settings.IsSidebarCollapsed ? new GridLength(0) : new GridLength(220);
+        ToggleSidebarButton.Content = _settings.IsSidebarCollapsed ? "☰  Показать меню" : "☰  Скрыть меню";
     }
 
     private void OpenChanges_Click(object sender, RoutedEventArgs e)

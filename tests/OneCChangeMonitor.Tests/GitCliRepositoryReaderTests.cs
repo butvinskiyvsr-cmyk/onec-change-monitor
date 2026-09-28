@@ -70,6 +70,30 @@ public sealed class GitCliRepositoryReaderTests
         Assert.Equal("remote update", commits[0].Subject);
     }
 
+    [Fact]
+    public async Task ReadsHistoryForSelectedConfigurationObjectOnly()
+    {
+        using var repository = TestRepository.Create();
+        const string objectPath = "src/cf/Documents/Заказ/Ext/ObjectModule.bsl";
+        repository.Write(objectPath, "Первая версия");
+        repository.Git("add", ".");
+        repository.Git("commit", "-m", "object created");
+        repository.Write("README.md", "unrelated");
+        repository.Git("add", ".");
+        repository.Git("commit", "-m", "unrelated change");
+        repository.Write(objectPath, "Вторая версия");
+        repository.Git("add", ".");
+        repository.Git("commit", "-m", "object changed");
+
+        var history = await new GitCliRepositoryReader(new OneCPathClassifier()).GetPathHistoryAsync(
+            repository.AsProject(),
+            ["src/cf/Documents/Заказ", "src/cf/Documents/Заказ.xml"],
+            20,
+            CancellationToken.None);
+
+        Assert.Equal(["object changed", "object created"], history.Select(item => item.Subject));
+    }
+
     private sealed class TestRepository : IDisposable
     {
         private TestRepository(string path) => Path = path;

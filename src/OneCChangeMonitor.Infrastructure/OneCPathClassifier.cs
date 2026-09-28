@@ -18,9 +18,14 @@ public sealed class OneCPathClassifier : IOneCPathClassifier
         ["CommonModules"] = "Общий модуль",
         ["CommonForms"] = "Общая форма",
         ["CommonCommands"] = "Общая команда",
+        ["CommonPictures"] = "Общая картинка",
+        ["CommonTemplates"] = "Общий макет",
+        ["CommonAttributes"] = "Общий реквизит",
+        ["CommandGroups"] = "Группа команд",
         ["Roles"] = "Роль",
         ["Subsystems"] = "Подсистема",
         ["Enumerations"] = "Перечисление",
+        ["Enums"] = "Перечисление",
         ["Constants"] = "Константа",
         ["ExchangePlans"] = "План обмена",
         ["ChartsOfAccounts"] = "План счетов",
@@ -32,7 +37,19 @@ public sealed class OneCPathClassifier : IOneCPathClassifier
         ["HTTPServices"] = "HTTP-сервис",
         ["EventSubscriptions"] = "Подписка на событие",
         ["ScheduledJobs"] = "Регламентное задание",
-        ["SessionParameters"] = "Параметр сеанса"
+        ["SessionParameters"] = "Параметр сеанса",
+        ["DefinedTypes"] = "Определяемый тип",
+        ["DocumentJournals"] = "Журнал документов",
+        ["ExternalDataSources"] = "Внешний источник данных",
+        ["FilterCriteria"] = "Критерий отбора",
+        ["FunctionalOptions"] = "Функциональная опция",
+        ["IntegrationServices"] = "Сервис интеграции",
+        ["Interfaces"] = "Интерфейс",
+        ["Languages"] = "Язык",
+        ["Sequences"] = "Последовательность",
+        ["SettingsStorages"] = "Хранилище настроек",
+        ["StyleItems"] = "Элемент стиля",
+        ["Styles"] = "Стиль"
     };
 
     public OneCObjectReference? Classify(RepositoryProject project, string path)
@@ -43,9 +60,11 @@ public sealed class OneCPathClassifier : IOneCPathClassifier
         if (root is null) return null;
 
         var parts = normalized[(root.Length + 1)..].Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 0) return null;
+        if (parts.Length < 2) return null;
 
-        var sourceKind = root.EndsWith("/cf", StringComparison.OrdinalIgnoreCase) ? "Конфигурация"
+        var sourceKind = root.EndsWith("/cf", StringComparison.OrdinalIgnoreCase) ||
+                         File.Exists(Path.Combine(project.LocalPath, root.Replace('/', Path.DirectorySeparatorChar), "Configuration.xml"))
+            ? "Конфигурация"
             : root.EndsWith("/cfe", StringComparison.OrdinalIgnoreCase) ? "Расширение"
             : root.EndsWith("/epf", StringComparison.OrdinalIgnoreCase) ? "Внешняя обработка"
             : root.EndsWith("/erf", StringComparison.OrdinalIgnoreCase) ? "Внешний отчёт" : "Источник 1С";

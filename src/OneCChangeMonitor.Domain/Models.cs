@@ -69,3 +69,11 @@ public sealed record ChangeTreeNode(
     int DeletedLines,
     string? RiskLevel,
     IReadOnlyList<ChangeTreeNode> Children);
+
+public sealed record ConfigurationObject(
+    string SourceKind,
+    string ObjectType,
+    string Name,
+    IReadOnlyList<string> Components,
+    IReadOnlyList<string> Files,
+    IReadOnlyList<string> HistoryPaths);
