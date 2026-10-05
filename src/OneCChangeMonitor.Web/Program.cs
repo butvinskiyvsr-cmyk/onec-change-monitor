@@ -22,7 +22,7 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 var api = app.MapGroup("/api");
-api.MapGet("/health", () => Results.Ok(new { status = "ok", version = "0.3.4" }));
+api.MapGet("/health", () => Results.Ok(new { status = "ok", version = "0.3.5" }));
 api.MapGet("/projects", (ChangeMonitorService service) => service.GetProjects().Select(project => new
 {
     project.Id,
