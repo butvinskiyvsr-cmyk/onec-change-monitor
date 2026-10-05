@@ -1,0 +1,68 @@
+name: Сообщить об ошибке
+description: Помогите воспроизвести и исправить проблему в ConfigScope
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за сообщение. Не прикладывайте токены, внутренние адреса и содержимое рабочих конфигураций.
+  - type: input
+    id: version
+    attributes:
+      label: Версия ConfigScope
+      placeholder: Например, 0.3.4
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Версия Windows
+      placeholder: Например, Windows 11 24H2
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Способ запуска
+      options:
+        - Установщик
+        - Портативная ZIP-сборка
+        - Из исходного кода
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Источник Git
+      options:
+        - Локальный репозиторий
+        - GitHub
+        - Gitea
+        - Другой Git-сервер
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      description: Опишите минимальную последовательность действий.
+      placeholder: |
+        1. Открыть…
+        2. Выбрать…
+        3. Наблюдать…
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемый результат
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Фактический результат и журнал
+      description: При необходимости приложите обезличенный фрагмент журнала или снимок экрана.
+    validations:
+      required: true

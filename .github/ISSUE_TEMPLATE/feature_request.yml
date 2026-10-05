@@ -1,0 +1,24 @@
+name: Предложить улучшение
+description: Идея для развития ConfigScope
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую задачу нужно решить?
+      description: Опишите рабочий сценарий и существующее ограничение.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Предлагаемое решение
+      description: Расскажите, как это могло бы работать в интерфейсе.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Альтернативы
+      description: Какие обходные пути вы уже пробовали?

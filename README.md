@@ -4,7 +4,17 @@
 
 # ConfigScope
 
+[![Последний релиз](https://img.shields.io/github/v/release/butvinskiyvsr-cmyk/onec-change-monitor?display_name=tag&style=flat-square&label=release)](https://github.com/butvinskiyvsr-cmyk/onec-change-monitor/releases/latest)
+[![Загрузки](https://img.shields.io/github/downloads/butvinskiyvsr-cmyk/onec-change-monitor/total?style=flat-square&label=downloads)](https://github.com/butvinskiyvsr-cmyk/onec-change-monitor/releases)
+[![MIT](https://img.shields.io/github/license/butvinskiyvsr-cmyk/onec-change-monitor?style=flat-square)](LICENSE)
+
 Нативное Windows-приложение для просмотра изменений конфигураций 1С в Git. Оно показывает историю на языке объектов 1С и даёт двустороннее построчное сравнение BSL/XML.
+
+**[Скачать установщик](https://github.com/butvinskiyvsr-cmyk/onec-change-monitor/releases/latest/download/ConfigScope-Setup-0.3.4.exe)** · [Портативная версия](https://github.com/butvinskiyvsr-cmyk/onec-change-monitor/releases/latest/download/ConfigScope-win-x64.zip) · [Все релизы](https://github.com/butvinskiyvsr-cmyk/onec-change-monitor/releases)
+
+<p align="center">
+  <img src="assets/configscope-demo.gif" width="100%" alt="ConfigScope: дерево объектов 1С, история изменений и сравнение BSL-кода">
+</p>
 
 ## Возможности версии 0.3.4
 
